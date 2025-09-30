@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netexplainer"
+version = "0.1.0"
+description = "Using LLMs to analyze network traces by decomposing queries in manageable steps."
+authors = [
+    { name = "Hossam", email = "hossam@correo.ugr.es" }
+]
+dependencies = [
+    "scapy",
+    "pytest",
+    "langchain",
+    "langchain_google_genai",
+    "langchain_community",
+    "langchain_core",
+    "chromadb",
+    "numexpr",
+    "pandas",
+    "plotly",
+    "kaleido",
+    "langchain-ollama"
+]
+requires-python = ">=3.10"
+readme = "README.md"
+
+[tool.distutils.egg_info]
+egg_base = "/tmp"
+
+[tool.setuptools]
+py-modules = []
+
+[tool.uv]
+constraint-dependencies = ["kaleido!=0.2.1.post1"]
