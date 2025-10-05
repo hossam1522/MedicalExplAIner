@@ -3,9 +3,9 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "netexplainer"
+name = "medicalexplainer"
 version = "0.1.0"
-description = "Using LLMs to analyze network traces by decomposing queries in manageable steps."
+description = "Using LLMs to analyze medical questions by decomposing queries in manageable steps."
 authors = [
     { name = "Hossam", email = "hossam@correo.ugr.es" }
 ]

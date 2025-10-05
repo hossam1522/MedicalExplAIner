@@ -1,5 +1,5 @@
-# NetExplAIner
-Using LLMs to analyze network traces by decomposing queries into manageable steps and using mathematical external tools. The idea can be seen more clearly in the following schema:
+# MedicalExplAIner
+Using LLMs to analyze medical questions by decomposing queries into manageable steps and using mathematical external tools. The idea can be seen more clearly in the following schema:
 
 ![image](https://github.com/user-attachments/assets/acbefac2-6951-40e7-b7ad-e127092fa0b7)
 
