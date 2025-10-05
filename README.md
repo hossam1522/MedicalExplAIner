@@ -48,25 +48,3 @@ The idea consists of investigating the improvement (or not) of the approach of d
    ```
    make run
    ```
-
-## Unit testing
-To check the correct functioning of the project without the need to install all dependencies, a Docker container has been created to perform all the processes and check the unit tests located in the `tests/` folder.
-
-To build and run the container locally, you can use the following command:
-```bash
-docker build -t medicalexplainer . && docker run -u 1001 -t -v "$(pwd):/app/test" medicalexplainer
-```
-
-In case of not want to build the image locally, you can pull and run the image directly from [DockerHub](https://hub.docker.com/repository/docker/hossam1522/medicalexplainer/general) by using the following command:
-```bash
-docker run -u 1001 -t -v "$(pwd):/app/test" hossam1522/medicalexplainer
-```
-
-If you want to test the code without using Docker, you should execute the following commands to install `uv` and then test:
-```
-make install-uv && make test
-```
-
-### Additional notes
-
-- [LICENSE](LICENSE)
