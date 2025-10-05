@@ -5,7 +5,7 @@ import logging
 import warnings
 from pathlib import Path
 from dotenv import load_dotenv
-from netexplainer.logger import configure_logger
+from medicalexplainer.logger import configure_logger
 from langchain_community.document_loaders import TextLoader
 from langchain.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -14,7 +14,7 @@ from langchain_core.messages import ToolMessage, BaseMessage
 from langchain_ollama import ChatOllama
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-configure_logger(name="llm", filepath=Path(__file__).parent / "data/evaluation/netexplainer.log")
+configure_logger(name="llm", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
 logger = logging.getLogger("llm")
 
 

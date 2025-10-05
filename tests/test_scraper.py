@@ -1,7 +1,7 @@
 import os
 from unittest.mock import patch, MagicMock, Mock
 from scapy.error import Scapy_Exception
-from netexplainer.scraper import Scraper
+from medicalexplainer.scraper import Scraper
 
 def test_get_download_urls():
     """Test URL parsing logic"""
@@ -31,7 +31,7 @@ def test_download_captures(tmpdir):
         mock_response.content = b'file content'
 
         with patch('requests.get', return_value=mock_response), \
-             patch('netexplainer.scraper.DATASET_PATH', str(tmpdir)):
+             patch('medicalexplainer.scraper.DATASET_PATH', str(tmpdir)):
 
             scraper = Scraper()
             scraper.download_captures()
@@ -51,9 +51,9 @@ def test_clean_raw_data_basic(tmpdir):
     mock_packets = MagicMock()
     mock_packets.__len__.return_value = 5
 
-    with patch('netexplainer.scraper.rdpcap', return_value=mock_packets) as mock_rdpcap, \
-         patch('netexplainer.scraper.DATASET_PATH', str(raw_path)), \
-         patch('netexplainer.scraper.CLEANED_PATH', str(cleaned_path)):
+    with patch('medicalexplainer.scraper.rdpcap', return_value=mock_packets) as mock_rdpcap, \
+         patch('medicalexplainer.scraper.DATASET_PATH', str(raw_path)), \
+         patch('medicalexplainer.scraper.CLEANED_PATH', str(cleaned_path)):
 
         scraper = Scraper()
         scraper.clean_raw_data(max_packets=10, data_path=str(raw_path))
@@ -76,9 +76,9 @@ def test_clean_raw_data_packet_count(tmpdir):
             mock.__len__.return_value = 15
         return mock
 
-    with patch('netexplainer.scraper.rdpcap', side_effect=mock_rdpcap), \
-         patch('netexplainer.scraper.DATASET_PATH', str(raw_path)), \
-         patch('netexplainer.scraper.CLEANED_PATH', str(cleaned_path)):
+    with patch('medicalexplainer.scraper.rdpcap', side_effect=mock_rdpcap), \
+         patch('medicalexplainer.scraper.DATASET_PATH', str(raw_path)), \
+         patch('medicalexplainer.scraper.CLEANED_PATH', str(cleaned_path)):
 
         scraper = Scraper()
         scraper.clean_raw_data(max_packets=10, data_path=str(raw_path))
@@ -87,15 +87,15 @@ def test_clean_raw_data_packet_count(tmpdir):
 
 def test_clean_raw_data_existing_dir(tmpdir):
     """Test existing directory handling"""
-    from netexplainer.scraper import Scraper
+    from medicalexplainer.scraper import Scraper
 
     raw_path = tmpdir.mkdir("raw")
     cleaned_path = tmpdir.mkdir("cleaned")
     (cleaned_path / "existing.txt").write("")
 
-    with patch('netexplainer.scraper.DATASET_PATH', str(raw_path)), \
-         patch('netexplainer.scraper.CLEANED_PATH', str(cleaned_path)), \
-         patch('netexplainer.scraper.logger') as mock_logger:
+    with patch('medicalexplainer.scraper.DATASET_PATH', str(raw_path)), \
+         patch('medicalexplainer.scraper.CLEANED_PATH', str(cleaned_path)), \
+         patch('medicalexplainer.scraper.logger') as mock_logger:
 
         scraper = Scraper()
         scraper.clean_raw_data(max_packets=10, data_path=str(raw_path))
@@ -107,16 +107,16 @@ def test_clean_raw_data_existing_dir(tmpdir):
 
 def test_clean_raw_data_error_handling(tmpdir):
     """Test error handling during processing"""
-    from netexplainer.scraper import Scraper
+    from medicalexplainer.scraper import Scraper
 
     raw_path = tmpdir.mkdir("raw")
     cleaned_path = tmpdir.mkdir("cleaned")
     (raw_path / "corrupted.pcap").write(b"invalid data")
 
-    with patch('netexplainer.scraper.rdpcap', side_effect=Scapy_Exception("Invalid file")), \
-         patch('netexplainer.scraper.DATASET_PATH', str(raw_path)), \
-         patch('netexplainer.scraper.CLEANED_PATH', str(cleaned_path)), \
-         patch('netexplainer.scraper.logger') as mock_logger:
+    with patch('medicalexplainer.scraper.rdpcap', side_effect=Scapy_Exception("Invalid file")), \
+         patch('medicalexplainer.scraper.DATASET_PATH', str(raw_path)), \
+         patch('medicalexplainer.scraper.CLEANED_PATH', str(cleaned_path)), \
+         patch('medicalexplainer.scraper.logger') as mock_logger:
 
         scraper = Scraper()
         scraper.clean_raw_data(max_packets=10, data_path=str(raw_path))

@@ -3,11 +3,11 @@ import yaml
 import sys
 import logging
 from pathlib import Path
-from netexplainer.scraper import Scraper
-from netexplainer.logger import configure_logger
-from netexplainer.evaluator import Evaluator, QUESTIONS_PATH
+from medicalexplainer.scraper import Scraper
+from medicalexplainer.logger import configure_logger
+from medicalexplainer.evaluator import Evaluator, QUESTIONS_PATH
 
-configure_logger(name="main", filepath=Path(__file__).parent / "data/evaluation/netexplainer.log")
+configure_logger(name="main", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
 logger = logging.getLogger("main")
 
 

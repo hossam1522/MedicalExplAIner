@@ -1,14 +1,14 @@
 import unittest
 import os
 from unittest.mock import patch, mock_open, MagicMock
-from netexplainer.llm import LLM, models, calculator
+from medicalexplainer.llm import LLM, models, calculator
 
 class TestLLM(unittest.TestCase):
-    @patch("netexplainer.llm.TextLoader")
+    @patch("medicalexplainer.llm.TextLoader")
     @patch.dict(os.environ, {"GOOGLE_API_KEY": "test", "GROQ_API_KEY": "test"})
     @patch("os.path.exists", return_value=True)
     @patch("os.path.isfile", return_value=True)
-    @patch("netexplainer.llm.load_dotenv")
+    @patch("medicalexplainer.llm.load_dotenv")
     def setUp(self, mock_load_dotenv, mock_exists, mock_isfile, mock_loader):
         self.mock_file_content = "Sample trace data\nLine1\nLine2"
         mock_loader.return_value.load.return_value = [MagicMock(page_content=self.mock_file_content)]
@@ -17,7 +17,7 @@ class TestLLM(unittest.TestCase):
             self.llm = LLM("dummy.txt")
             self.llm.model = MagicMock()
 
-    @patch("netexplainer.llm.load_dotenv")
+    @patch("medicalexplainer.llm.load_dotenv")
     def test_init_valid_file(self, mock_load_dotenv):
         with patch("os.path.exists", return_value=True), \
              patch("os.path.isfile", return_value=True), \
@@ -37,13 +37,13 @@ class TestLLM(unittest.TestCase):
             LLM("directory")
 
 class TestLLMSubclasses(unittest.TestCase):
-    @patch("netexplainer.llm.ChatGoogleGenerativeAI")
+    @patch("medicalexplainer.llm.ChatGoogleGenerativeAI")
     @patch("os.path.exists", return_value=True)
     @patch("os.path.isfile", return_value=True)
-    @patch("netexplainer.llm.load_dotenv")
+    @patch("medicalexplainer.llm.load_dotenv")
     @patch.dict(os.environ, {"GOOGLE_API_KEY": "test"})
     def test_gemini_init(self, mock_load_dotenv, mock_isfile, mock_exists, mock_model):
-        with patch("netexplainer.llm.TextLoader"), \
+        with patch("medicalexplainer.llm.TextLoader"), \
              patch("builtins.open", mock_open(read_data="data")):
             llm = models["gemini-2.0-flash"][0]("dummy.txt", tools=True)
 
@@ -55,12 +55,12 @@ class TestLLMSubclasses(unittest.TestCase):
             )
             mock_model.return_value.bind_tools.assert_called_once_with(tools=[calculator])
 
-    @patch("netexplainer.llm.ChatOllama")
+    @patch("medicalexplainer.llm.ChatOllama")
     @patch("os.path.exists", return_value=True)
     @patch("os.path.isfile", return_value=True)
-    @patch("netexplainer.llm.load_dotenv")
+    @patch("medicalexplainer.llm.load_dotenv")
     def test_mistral_init(self, mock_load_dotenv, mock_isfile, mock_exists, mock_model):
-        with patch("netexplainer.llm.TextLoader"), \
+        with patch("medicalexplainer.llm.TextLoader"), \
              patch("builtins.open", mock_open(read_data="data")):
             llm = models["mistral-7b"][0]("dummy.txt", tools=True)
 

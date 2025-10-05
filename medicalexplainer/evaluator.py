@@ -5,19 +5,19 @@ import logging
 from pathlib import Path
 import plotly.express as px
 import plotly.graph_objects as go
-from netexplainer.dataset import Dataset
-from netexplainer.llm import models
-from netexplainer.dataset import Dataset
-from netexplainer.logger import configure_logger
+from medicalexplainer.dataset import Dataset
+from medicalexplainer.llm import models
+from medicalexplainer.dataset import Dataset
+from medicalexplainer.logger import configure_logger
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda
 from langchain.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor
 from langchain_ollama import ChatOllama
 
-configure_logger(name="evaluator", filepath=Path(__file__).parent / "data/evaluation/netexplainer.log")
+configure_logger(name="evaluator", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
 logger = logging.getLogger("evaluator")
-QUESTIONS_PATH = "netexplainer/data/questions.yaml"
+QUESTIONS_PATH = "medicalexplainer/data/questions.yaml"
 
 
 class Evaluator:
@@ -114,13 +114,13 @@ class Evaluator:
         for model in models_to_evaluate:
             all_results = []
 
-            for file in os.listdir("netexplainer/data/cleaned/"):
+            for file in os.listdir("medicalexplainer/data/cleaned/"):
                 if file.endswith(".txt"):
                     continue
 
                 try:
                     logger.debug(f"Processing file: {file} with model: {model}")
-                    dataset = Dataset(os.path.join("netexplainer/data/cleaned/", file), QUESTIONS_PATH, models[f"{model}"][1])
+                    dataset = Dataset(os.path.join("medicalexplainer/data/cleaned/", file), QUESTIONS_PATH, models[f"{model}"][1])
                     llm = models[f"{model}"][0](dataset.processed_file, tools=tools)
 
                     for question in dataset.questions_subquestions.keys():
@@ -263,9 +263,9 @@ class Evaluator:
 
             dir_path = ""
             if tools:
-                dir_path = f"netexplainer/data/evaluation/{model}_tools/"
+                dir_path = f"medicalexplainer/data/evaluation/{model}_tools/"
             else:
-                dir_path = f"netexplainer/data/evaluation/{model}/"
+                dir_path = f"medicalexplainer/data/evaluation/{model}/"
             os.makedirs(dir_path, exist_ok=True)
 
             with open(f"{dir_path}subquestions_similarity.txt", "w") as f:
@@ -331,9 +331,9 @@ class Evaluator:
 
             dir_path = ""
             if tools:
-                dir_path = f"netexplainer/data/evaluation/{model}_tools/"
+                dir_path = f"medicalexplainer/data/evaluation/{model}_tools/"
             else:
-                dir_path = f"netexplainer/data/evaluation/{model}/"
+                dir_path = f"medicalexplainer/data/evaluation/{model}/"
             os.makedirs(dir_path, exist_ok=True)
 
             with open(f"{dir_path}answers.txt", "w") as f:
@@ -394,9 +394,9 @@ class Evaluator:
 
             dir_path = ""
             if tools:
-                dir_path = f"netexplainer/data/evaluation/{model}_tools/"
+                dir_path = f"medicalexplainer/data/evaluation/{model}_tools/"
             else:
-                dir_path = f"netexplainer/data/evaluation/{model}/"
+                dir_path = f"medicalexplainer/data/evaluation/{model}/"
             os.makedirs(dir_path, exist_ok=True)
 
             with open(f"{dir_path}answers_pie_chart.txt", "w") as f:

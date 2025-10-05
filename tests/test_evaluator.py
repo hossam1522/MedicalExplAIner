@@ -1,7 +1,7 @@
 import unittest
 import os
 from unittest.mock import patch, call
-from netexplainer.evaluator import Evaluator
+from medicalexplainer.evaluator import Evaluator
 
 class TestEvaluatorCharts(unittest.TestCase):
     def setUp(self):
@@ -14,18 +14,18 @@ class TestEvaluatorCharts(unittest.TestCase):
             {"model": "model2", "question": "Q3", "answer_eval": "NO"},
         ]
 
-    @patch("netexplainer.evaluator.px.pie")
-    @patch("netexplainer.evaluator.os.makedirs", wraps=os.makedirs)
+    @patch("medicalexplainer.evaluator.px.pie")
+    @patch("medicalexplainer.evaluator.os.makedirs", wraps=os.makedirs)
     @patch("plotly.graph_objects.Figure.write_image")
     def test_generate_pie_charts(self, mock_write_image, mock_makedirs, mock_pie):
         self.evaluator.generate_pie_charts(self.mock_results)
         mock_makedirs.assert_has_calls([
-            call("netexplainer/data/evaluation/model1/", exist_ok=True),
-            call("netexplainer/data/evaluation/model2/", exist_ok=True)
+            call("medicalexplainer/data/evaluation/model1/", exist_ok=True),
+            call("medicalexplainer/data/evaluation/model2/", exist_ok=True)
         ], any_order=True)
 
-    @patch("netexplainer.evaluator.go.Figure")
-    @patch("netexplainer.evaluator.os.makedirs", wraps=os.makedirs)
+    @patch("medicalexplainer.evaluator.go.Figure")
+    @patch("medicalexplainer.evaluator.os.makedirs", wraps=os.makedirs)
     @patch("plotly.graph_objects.Figure.write_image")
     def test_generate_bar_charts(self, mock_write_image, mock_makedirs, mock_fig):
         self.evaluator.generate_bar_charts(self.mock_results)
@@ -35,8 +35,8 @@ class TestEvaluatorCharts(unittest.TestCase):
         self.assertEqual(call_args['data'][0].name, 'Correct (YES)')
         self.assertEqual(call_args['data'][1].name, 'Incorrect (NO)')
 
-    @patch("netexplainer.evaluator.go.Figure")
-    @patch("netexplainer.evaluator.os.makedirs", wraps=os.makedirs)
+    @patch("medicalexplainer.evaluator.go.Figure")
+    @patch("medicalexplainer.evaluator.os.makedirs", wraps=os.makedirs)
     @patch("plotly.graph_objects.Figure.write_image")
     def test_radar_charts(self, mock_write_image, mock_makedirs, mock_fig):
         radar_results = [
@@ -49,11 +49,11 @@ class TestEvaluatorCharts(unittest.TestCase):
         self.assertEqual(call_args['data']['r'], (70.0,))
         self.assertEqual(call_args['data']['theta'], ("Question 1",))
 
-    @patch("netexplainer.evaluator.os.makedirs", wraps=os.makedirs)
+    @patch("medicalexplainer.evaluator.os.makedirs", wraps=os.makedirs)
     @patch("plotly.graph_objects.Figure.write_image")
     def test_directory_creation_with_tools(self, mock_write_image, mock_makedirs):
         self.evaluator.generate_pie_charts([{"model": "gemma", "answer_eval": "YES"}], tools=True)
-        mock_makedirs.assert_called_with("netexplainer/data/evaluation/gemma_tools/", exist_ok=True)
+        mock_makedirs.assert_called_with("medicalexplainer/data/evaluation/gemma_tools/", exist_ok=True)
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,7 @@ import logging
 def configure_logger():
     with tempfile.TemporaryDirectory() as tmpdir:
         log_path = Path(tmpdir) / "tests.log"
-        logger = logging.getLogger("netexplainer")
+        logger = logging.getLogger("medicalexplainer")
         logger.handlers.clear()
 
         formatter = logging.Formatter("%(levelname)s - %(message)s")

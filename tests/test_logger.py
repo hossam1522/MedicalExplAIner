@@ -1,7 +1,7 @@
 import logging
 import sys
 from pathlib import Path
-from netexplainer.logger import configure_logger
+from medicalexplainer.logger import configure_logger
 from unittest.mock import patch
 
 def test_logger_has_correct_name(tmp_path):
