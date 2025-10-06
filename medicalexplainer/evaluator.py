@@ -15,7 +15,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor
 from langchain_ollama import ChatOllama
 
-configure_logger(name="evaluator", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
+configure_logger(name="evaluator", filepath=Path(__file__).parent / "logs/medicalexplainer.log")
 logger = logging.getLogger("evaluator")
 QUESTIONS_PATH = "medicalexplainer/data/questions.yaml"
 

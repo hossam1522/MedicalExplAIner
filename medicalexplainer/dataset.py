@@ -1,25 +1,20 @@
-from scapy.all import rdpcap
 import os
-from subprocess import check_output
-import re
-import yaml
+import json
 import logging
 from pathlib import Path
 from medicalexplainer.logger import configure_logger
 
-configure_logger(name="dataset", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
+configure_logger(name="dataset", filepath=Path(__file__).parent / "logs/medicalexplainer.log")
 logger = logging.getLogger("dataset")
 
 
 class Dataset:
-    def __init__(self, file_path: str, questions_path: str, windows_context_size: str):
+    def __init__(self, file_path: str):
         """
-        Initialize the dataset object with the file provided
+        Initialize the dataset object with the medical records JSON file provided
 
         Args:
-            file_path (str): The path of the file to process
-            questions_path (str): The path of the questions file
-            windows_context_size (str): The size of the context window of the LLM
+            file_path (str): The path of the JSON file to process
         """
         if not os.path.exists(file_path):
             logger.error(f'The path {file_path} does not exist')
@@ -27,231 +22,58 @@ class Dataset:
         elif not os.path.isfile(file_path):
             logger.error(f'The path {file_path} is not a file, please provide a file')
             raise FileExistsError(f'The path {file_path} is not a file, please provide a file')
-        elif not file_path.endswith('.pcap') and not file_path.endswith('.pcapng') and not file_path.endswith('.cap'):
-            logger.error(f'The file {file_path} is not a network file, please provide a pcap or pcapng file')
-            raise TypeError(f'The file {file_path} is not a network file, please provide a pcap or pcapng file')
+        elif not file_path.endswith('.json'):
+            logger.error(f'The file {file_path} is not a JSON file, please provide a JSON file')
+            raise TypeError(f'The file {file_path} is not a JSON file, please provide a JSON file')
         else:
             self.__path = os.path.abspath(file_path)
 
-        if not os.path.exists(questions_path):
-            logger.error(f'The path {questions_path} does not exist')
-            raise FileNotFoundError(f'The path {questions_path} does not exist')
-        elif not os.path.isfile(questions_path):
-            logger.error(f'The path {questions_path} is not a file, please provide a file')
-            raise FileExistsError(f'The path {questions_path} is not a file, please provide a file')
-        elif not questions_path.endswith('.yaml'):
-            logger.error(f'The file {questions_path} is not a yaml file, please provide a yaml file')
-            raise TypeError(f'The file {questions_path} is not a yaml file, please provide a yaml file')
-        else:
-            self.__questions_path = os.path.abspath(questions_path)
-        
-        with open(self.__questions_path, 'r') as file:
-            data = yaml.safe_load(file)
+        # Load medical records data
+        self.medical_data = self.__load_data(self.__path)
+        self.dataset_items = self.__prepare_dataset_items()
 
-        self.questions_subquestions = {}
-        self.divide_in_subquestions = {}
-
-        for item in data['questions']:
-            question = item['question']
-            subquestions = item['subquestions']
-            divide_in_subquestions = item.get('divide_in_subquestions', True)
-            self.questions_subquestions[question] = subquestions
-            self.divide_in_subquestions[question] = divide_in_subquestions
-
-        self.questions_answers = self.__answer_question(self.__path)
-        self.processed_file = self.__process_file(self.__path, windows_context_size)
-    
-    def __process_file(self, file_path: str, windows_context_size: str) -> str:
+    def __load_data(self, file_path: str) -> dict:
         """
-        Process the file and convert it to txt format
+        Load medical records from JSON file
         
         Args:
-            file_path (str): The path of the file to process
-            windows_context_size (str): The size of the context window of the LLM
+            file_path (str): The path of the JSON file to load
 
         Returns:
-            str: The path of the processed file
+            dict: The loaded medical data
         """
-        logger.debug(f'Processing file {file_path}')
-        packets = self.__cap_to_str(file_path, windows_context_size)
-        txt_file_path = file_path.replace('.pcapng', '.txt').replace('.pcap', '.txt').replace('.cap', '.txt')
-        with open(txt_file_path, 'w') as f:
-            if windows_context_size == "big":
-                f.write("No.|Time|Source|Destination|Protocol|Length|Info\n")
-            else:
-                f.write("No.|Time|Source|Destination|Protocol|Length\n")
-            f.write(packets)
-        logger.debug(f'File {file_path} processed and saved as {txt_file_path}')
-        return txt_file_path
+        logger.debug(f'Loading medical data from {file_path}')
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        logger.debug(f'Successfully loaded medical data with {len(data.get("data", []))} records')
+        return data
 
-    def __cap_to_str(self, file: str, windows_context_size: str) -> str:
+    def __prepare_dataset_items(self) -> list:
         """
-        Convert the pcap file to a string using tshark
-
-        Args:
-            file (str): The path of the file to process
-            windows_context_size (str): The size of the context window of the LLM
+        Prepare a structured list of dataset items with context, questions and answers
 
         Returns:
-            str: The capture in string format
+            list: List of dictionaries containing only context, question, and answer
         """
-        logger.debug(f'Converting file {file} to string')
-        try:
-            out = check_output(
-                [
-                    "tshark",
-                    "-r",
-                    file,
-                    "-T",
-                    "tabs",
-                ]
-            )
-            logger.debug(f'File {file} converted to string')
-            return self.__clean_cap_format(out.decode("utf-8"), windows_context_size)
-        except Exception as e:
-            logger.error(f"Error converting file {file} to string: {e}")
-            raise Exception(f"Fail reading the file. ERROR: {e}")
+        logger.debug('Preparing dataset items from medical data')
+        dataset_items = []
 
-    def __clean_cap_format(self, cap: str, windows_context_size: str) -> str:
-        """
-        Clean the capture format to a more readable format
+        for record in self.medical_data.get('data', []):
+            for paragraph in record.get('paragraphs', []):
+                context = paragraph.get('context', '')
 
-        Args:
-            cap (str): The capture to clean
-            windows_context_size (str): The size of the context window of the LLM
+                for qa in paragraph.get('qas', []):
+                    question = qa.get('question', '')
+                    answers = qa.get('answers', [])
 
-        Returns:
-            str: The cleaned capture
-        """
-        logger.debug(f'Cleaning capture format')
-        # Split the string by lines
-        cap_lines = cap.strip().split("\n")
+                    if question and answers:
+                        # Create a minimal item with only context, question, and answer
+                        item = {
+                            'context': context,
+                            'question': question,
+                            'answer': answers[0].get('text', '')
+                        }
+                        dataset_items.append(item)
 
-        match_tabs = r"(?<!\\)\t"
-
-        table_rows = []
-
-        for line in cap_lines:
-            if windows_context_size == "big":
-                columns = re.split(match_tabs, line.strip())
-            else:
-                columns = re.split(match_tabs, line.strip())[:-1]
-
-            if "\u2192" in columns:
-                # Remove it from list
-                columns.remove("\u2192")
-
-            # Format columns elements before append them to the table
-            for i, col in enumerate(columns):
-                col = col.strip().replace("\u2192", "->").replace('"', "'")
-                columns[i] = col
-
-            table_rows.append(columns)
-
-        cap_formated = ""
-
-        for row in table_rows:
-            cap_formated += " | ".join(row) + "\n"
-
-        logger.debug(f'Capture format cleaned')
-        return cap_formated
-
-    def __answer_question(self, file_path: str) -> dict:
-        """
-        Answer the question using the processed file
-
-        Args:
-            file_path (str): The path of the file to process
-
-        Returns:
-            dict: Dictionary with the questions and answers
-        """
-        logger.debug(f'Answering questions for file {file_path}')
-        packets = rdpcap(file_path)
-        questions_answers = {}
-        total_size = 0
-        duration = 0
-
-        for packet in packets:
-            total_size += len(packet)
-
-        if len(packets) > 0:
-            start_time = packets[0].time
-            end_time = packets[-1].time
-            duration = end_time - start_time if end_time > start_time else 0
-        else:
-            duration = 0
-
-        for question in self.questions_subquestions.keys():
-            if question == "What is the total number of packets in the trace?":
-                questions_answers[question] = len(packets)
-
-            elif question == "How many unique communicators are present in the trace?":
-                unique_communicators = set()
-                for packet in packets:
-                    if packet.haslayer('IP'):
-                        unique_communicators.add(packet['IP'].src)
-                        unique_communicators.add(packet['IP'].dst)
-                    elif packet.haslayer('IPv6'):
-                        unique_communicators.add(packet['IPv6'].src)
-                        unique_communicators.add(packet['IPv6'].dst)
-                questions_answers[question] = len(unique_communicators)
-
-            elif question == "What is the IP that participates the most in communications in the trace?":
-                ip_count = {}
-                for packet in packets:
-                    if packet.haslayer('IP'):
-                        src_ip = packet['IP'].src
-                        dst_ip = packet['IP'].dst
-                        ip_count[src_ip] = ip_count.get(src_ip, 0) + 1
-                        ip_count[dst_ip] = ip_count.get(dst_ip, 0) + 1
-                    elif packet.haslayer('IPv6'):
-                        src_ip = packet['IPv6'].src
-                        dst_ip = packet['IPv6'].dst
-                        ip_count[src_ip] = ip_count.get(src_ip, 0) + 1
-                        ip_count[dst_ip] = ip_count.get(dst_ip, 0) + 1
-                if ip_count:
-                    max_count = max(ip_count.values())
-                    most_common_ips = [ip for ip, count in ip_count.items() if count == max_count]
-                    most_common_ip = " or ".join(most_common_ips) if len(most_common_ips) > 1 else most_common_ips[0]
-                else:
-                    most_common_ip = "No IP communications found"
-                questions_answers[question] = most_common_ip
-
-            elif question == "What is the total size of transmitted bytes?":
-                questions_answers[question] = total_size
-
-            elif question == "What is the average size of packets in bytes?":
-                average_size = total_size / len(packets) if packets else 0
-                questions_answers[question] = average_size
-
-            elif question == "What predominates in the capture: ICMP, TCP, or UDP?":
-                protocol_count = {'ICMP': 0, 'ICMPv6': 0, 'TCP': 0, 'UDP': 0}
-                for packet in packets:
-                    if packet.haslayer('ICMP'):
-                        protocol_count['ICMP'] += 1
-                    elif packet.haslayer('ICMPv6'):
-                        protocol_count['ICMPv6'] += 1
-                    elif packet.haslayer('TCP'):
-                        protocol_count['TCP'] += 1
-                    elif packet.haslayer('UDP'):
-                        protocol_count['UDP'] += 1
-                if sum(protocol_count.values()) == 0:
-                    predominant_protocol = "No ICMP, ICMPv6, TCP, or UDP packets found"
-                else:
-                    predominant_protocol = max(protocol_count, key=protocol_count.get)
-                questions_answers[question] = predominant_protocol
-
-            elif question == "How long in seconds does the communication last?":
-                questions_answers[question] = duration
-
-            elif question == "What is the average number of packets sent per second?":
-                average_packets_per_second = len(packets) / duration if duration > 0 else "There is only one packet in the trace, operation not possible"
-                questions_answers[question] = average_packets_per_second
-
-            elif question == "What is the average bytes/s sent in the communication?":
-                average_bytes_per_second = total_size / duration if duration > 0 else "There is only one packet in the trace, operation not possible"
-                questions_answers[question] = average_bytes_per_second
-
-        logger.debug(f'Questions answered for file {file_path}')
-        return questions_answers
+        logger.debug(f'Prepared {len(dataset_items)} dataset items')
+        return dataset_items
