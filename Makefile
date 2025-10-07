@@ -11,7 +11,7 @@ help:
 	@echo "  download-data  	Download network files from Wireshark samples"
 	@echo "  clean-data N=<number>	Keep network files with a maximum of <number> packets"
 	@echo "  delete-data   	Delete all network files"
-	@echo "  run           	Run the program"
+	@echo "  run MODELS='model1 model2 ...'	Run the program with specified models (space-separated)"
 	@echo "  dev           	Create a development environment"
 	@echo "  clean         	Remove build artifacts"
 	@echo "  check 	    	Check the code for syntax errors"
@@ -25,25 +25,10 @@ check:
 install:
 	uv run pip install .
 
-test:
-	PYTHONPATH=$(shell pwd) uv run pytest
-
 run:
-	uv run python3 -m medicalexplainer
-
-download-data:
-	uv run python3 -m medicalexplainer --download-data
-
-clean-data:
-ifndef N
-	@echo "Error: The max packet number should be specified with N=<number>"
-	@exit 1
-else
-	uv run python3 -m medicalexplainer --clean-data $(N)
-endif
-
-delete-data:
-	rm -rf medicalexplainer/data/raw/* medicalexplainer/data/cleaned/*
+	uv run python -m medicalexplainer \
+		--dataset medicalexplainer/data/test.final.json \
+		--models $(MODELS)
 
 dev:
 	uv venv dev

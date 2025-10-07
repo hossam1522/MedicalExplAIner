@@ -60,7 +60,28 @@ MedicalExplAIner is a system that evaluates LLM models on their ability to answe
 
 ## Basic Usage
 
-### Main Command
+### Using Make
+
+The easiest way to run the program is using the Makefile:
+
+**Single model:**
+```bash
+make run MODELS=gemini-2.5-flash
+```
+
+**Multiple models:**
+```bash
+make run MODELS='gemini-2.5-flash qwen2.5-7b llama3.1-8b'
+```
+
+This command is equivalent to:
+```bash
+uv run python -m medicalexplainer \
+    --dataset medicalexplainer/data/test.final.json \
+    --models gemini-2.5-flash qwen2.5-7b llama3.1-8b
+```
+
+### Main Command (Direct Execution)
 
 ```bash
 python -m medicalexplainer --dataset <dataset_path> --models <model1> <model2> ...
