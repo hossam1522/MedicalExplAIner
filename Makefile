@@ -11,7 +11,7 @@ help:
 	@echo "  download-data  	Download network files from Wireshark samples"
 	@echo "  clean-data N=<number>	Keep network files with a maximum of <number> packets"
 	@echo "  delete-data   	Delete all network files"
-	@echo "  run           	Run the program"
+	@echo "  run MODELS='model1 model2 ...'	Run the program with specified models (space-separated)"
 	@echo "  dev           	Create a development environment"
 	@echo "  clean         	Remove build artifacts"
 	@echo "  check 	    	Check the code for syntax errors"
@@ -20,30 +20,15 @@ install-uv:
 	wget -qO- https://astral.sh/uv/install.sh | sh
 
 check:
-	python3 -m py_compile netexplainer/*.py
+	python3 -m py_compile medicalexplainer/*.py
 
 install:
 	uv run pip install .
 
-test:
-	PYTHONPATH=$(shell pwd) uv run pytest
-
 run:
-	uv run python3 -m netexplainer
-
-download-data:
-	uv run python3 -m netexplainer --download-data
-
-clean-data:
-ifndef N
-	@echo "Error: The max packet number should be specified with N=<number>"
-	@exit 1
-else
-	uv run python3 -m netexplainer --clean-data $(N)
-endif
-
-delete-data:
-	rm -rf netexplainer/data/raw/* netexplainer/data/cleaned/*
+	uv run python -m medicalexplainer \
+		--dataset medicalexplainer/data/test.final.json \
+		--models $(MODELS)
 
 dev:
 	uv venv dev
@@ -51,4 +36,4 @@ dev:
 	uv run pip install -e .[dev]
 
 clean:
-	rm -rf *.egg-info/ .pytest_cache/ __pycache__/ build/ dist/ netexplainer/__pycache__/ tests/__pycache__/
+	rm -rf *.egg-info/ .pytest_cache/ __pycache__/ build/ dist/ medicalexplainer/__pycache__/ tests/__pycache__/

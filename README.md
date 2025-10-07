@@ -1,72 +1,285 @@
-# NetExplAIner
-Using LLMs to analyze network traces by decomposing queries into manageable steps and using mathematical external tools. The idea can be seen more clearly in the following schema:
+# MedicalExplAIner - Usage Guide
 
-![image](https://github.com/user-attachments/assets/acbefac2-6951-40e7-b7ad-e127092fa0b7)
+## Overview
 
-The idea consists of investigating the improvement (or not) of the approach of dividing complex questions into manageable steps and providing the LLM model with an external mathematical tool to supply the areas where the LLMs are weaker, like doing math.
+MedicalExplAIner is a system that evaluates LLM models on their ability to answer medical questions by decomposing complex queries into more manageable sub-questions.
 
-## How to use
+## System Flow
 
-1. Clone the repository.
-2. Install `uv`:
+```
+┌─────────────────────────────────────────────────────────────┐
+│              MedicalExplAIner - Complete Flow               │
+└─────────────────────────────────────────────────────────────┘
+
+1. Load JSON dataset with medical records
+   └─> Format: {context, question, answer}
+
+2. For each question:
+
+   a) Generate sub-questions
+      └─> LLM decomposes the complex question
+
+   b) Answer each sub-question
+      └─> Using the patient's medical context
+
+   c) Synthesize final answer
+      └─> Integrate all partial answers
+
+   d) Evaluate the answer
+      └─> Compare with expected answer
+
+3. Generate result charts
+   └─> Pie charts and bar charts per model
+```
+
+## Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/hossam1522/MedicalExplAIner.git
+   cd MedicalExplAIner
    ```
+
+2. **Install uv** (Python package manager)
+   ```bash
    make install-uv
    ```
-3. Modify the `netexplainer/data/questions.yaml` file by indicating what models you want to evaluate (the available models are located in `netexplainer/llm.py` at the end of the file, in the `models` structure) and if you want questions to be divided or not. Feel free to modify the subquestions that will be compared to. For example:
-   ```yaml
-    models:
-      - "llama2-7b"
-      - "mistral-7b"
-    
-    questions:
-      - question: "What is the total number of packets in the trace?"
-        divide_in_subquestions: True
-        subquestions:
-          - "What is the first packet number?"
-          - "What is the last packet number?"
-    
-      - question: "How many unique communicators are present in the trace?"
-        divide_in_subquestions: False
-        subquestions:
-          - "How many unique source IPs are there?"
-          - "How many unique destination IPs are there?"
-          - "Are there any IPs that are both source and destination?"
-     ...
-   ```
-4. If you want to test another model not contemplated in the existing ones, feel free to modify and add the models you want, following the same format as the other models. You can use models by their API (like Gemini ones) or local models deployed by Ollama. You must indicate the LLM function to use and whether the context window is small or big.
-5. If you want to modify the questions of the `netexplainer/data/questions.yaml` file, you should add the new questions and a way to answer them in the `netexplainer/llm.py` file. More specifically, you should add that information to the `__answer_question` function.
-6. If you have some network traces to evaluate, put them in a folder called `raw/` located in `netexplainer/data/`. If not, you can download network traces from the [Wireshark Wiki](https://wiki.wireshark.org/samplecaptures) using the following command:
-   ```
-   make download-data
-   ```
-7. If you want to filter the network traces to a maximum number of packets per trace, you can indicate it with:
-   ```
-   make clean-data <N>
-   ```
-   Where `<N>` is the maximum number of traces. The filtered traces will be saved in the `netexplainer/data/cleaned` folder. If you don't want to filter, simply change the `raw/` folder name to `cleaned/`.
-8. Finally, once you have all configured properly, execute the program by doing:
-   ```
-   make run
+
+3. **Install dependencies**
+   ```bash
+   make install
    ```
 
-## Unit testing
-To check the correct functioning of the project without the need to install all dependencies, a Docker container has been created to perform all the processes and check the unit tests located in the `tests/` folder.
+4. **Configure environment variables** (if using API models)
 
-To build and run the container locally, you can use the following command:
+   Create a `.env` file in the project root:
+   ```bash
+   # For Google models (Gemini, Gemma)
+   GOOGLE_API_KEY=your_api_key_here
+   ```
+
+## Basic Usage
+
+### Using Make
+
+The easiest way to run the program is using the Makefile:
+
+**Single model:**
 ```bash
-docker build -t netexplainer . && docker run -u 1001 -t -v "$(pwd):/app/test" netexplainer
+make run MODELS=gemini-2.5-flash
 ```
 
-In case of not want to build the image locally, you can pull and run the image directly from [DockerHub](https://hub.docker.com/repository/docker/hossam1522/netexplainer/general) by using the following command:
+**Multiple models:**
 ```bash
-docker run -u 1001 -t -v "$(pwd):/app/test" hossam1522/netexplainer
+make run MODELS='gemini-2.5-flash qwen2.5-7b llama3.1-8b'
 ```
 
-If you want to test the code without using Docker, you should execute the following commands to install `uv` and then test:
-```
-make install-uv && make test
+This command is equivalent to:
+```bash
+uv run python -m medicalexplainer \
+    --dataset medicalexplainer/data/test.final.json \
+    --models gemini-2.5-flash qwen2.5-7b llama3.1-8b
 ```
 
-### Additional notes
+### Main Command (Direct Execution)
 
-- [LICENSE](LICENSE)
+```bash
+python -m medicalexplainer --dataset <dataset_path> --models <model1> <model2> ...
+```
+
+### Parameters
+
+| Parameter | Type | Required | Description | Default |
+|-----------|------|----------|-------------|---------|
+| `--dataset` | string | ✅ Yes | Path to the JSON dataset file | - |
+| `--models` | list | ❌ No | List of models to evaluate | `["gemini-2.0-flash"]` |
+| `--tools` | flag | ❌ No | Enable tool usage | `False` |
+| `--limit` | int | ❌ No | Limit number of questions | `None` |
+
+
+## Usage Examples
+
+### 1. Basic Evaluation (single model)
+
+```bash
+python -m medicalexplainer \
+    --dataset medicalexplainer/data/test.final.json \
+    --models gemini-2.0-flash
+```
+
+### 2. Multiple Model Evaluation
+
+```bash
+python -m medicalexplainer \
+    --dataset medicalexplainer/data/test.final.json \
+    --models gemini-2.0-flash qwen2.5-7b llama3.1-8b
+```
+
+### 3. Evaluation with Limit (for quick testing)
+
+```bash
+python -m medicalexplainer \
+    --dataset medicalexplainer/data/test.final.json \
+    --models gemini-2.0-flash \
+    --limit 10
+```
+
+### 4. Evaluation with Tools (not recommended for medical context)
+
+```bash
+python -m medicalexplainer \
+    --dataset medicalexplainer/data/test.final.json \
+    --models gemini-2.0-flash \
+    --tools
+```
+
+## Dataset Format
+
+The dataset must be a JSON file with the following format (SQuAD-like):
+
+## Dataset Format
+
+The dataset must be a JSON file with the following format (SQuAD-like):
+
+```json
+{
+    "data": [
+        {
+            "title": "case_ID",
+            "paragraphs": [
+                {
+                    "context": "Complete patient medical history...",
+                    "qas": [
+                        {
+                            "question": "Does the patient have diabetes?",
+                            "id": "0",
+                            "answers": [
+                                {
+                                    "answer_start": 123,
+                                    "text": "The patient has type 2 diabetes"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
+```
+
+## Results
+
+Results are saved in `medicalexplainer/data/evaluation/{model}/`:
+
+### Generated Files
+
+1. **`answers.txt`**: Detailed results per question
+   ```
+   Model: gemini-2.0-flash
+   Correct and incorrect answers:
+   Question 0: Correct: 8, Incorrect: 2
+   Question 1: Correct: 7, Incorrect: 3
+   ...
+   ```
+
+2. **`grouped_bar_answers.png`**: Grouped bar chart
+   - Correct answers (green)
+   - Incorrect answers (red)
+   - Per question
+
+3. **`answers_pie_chart.txt`**: Global percentages
+   ```
+   Model: gemini-2.0-flash
+   Correct and incorrect answers:
+   Correct (YES): 75.5%
+   Incorrect (NO): 20.3%
+   Problematic (PROBLEM): 4.2%
+   ```
+
+4. **`answers_pie_chart.png`**: Pie chart
+   - Global distribution of answers
+
+## Adding New Models
+
+To add a new model, edit `medicalexplainer/llm.py`:
+
+```python
+# 1. Create a class for the model
+class LLM_YOUR_MODEL(LLM):
+    def __init__(self, tools: bool = False):
+        super().__init__(tools)
+        self.model = "model-name"
+        self.tools = tools
+
+        llm = ChatOllama(  # or ChatGoogleGenerativeAI, etc.
+            model=self.model,
+            num_ctx=32768,
+        )
+
+        self.llm = llm
+        logger.debug("Using Your Model LLM")
+
+# 2. Add to the models dictionary
+models = {
+    # ... existing models ...
+    "your-model": (LLM_YOUR_MODEL, "big"),  # "big" or "small"
+}
+```
+
+## Logs
+
+Logs are saved in `medicalexplainer/logs/medicalexplainer.log`:
+
+- **DEBUG**: Detailed information for each step
+- **INFO**: General progress and results
+- **ERROR**: Errors and exceptions
+
+To view logs in real-time:
+```bash
+tail -f medicalexplainer/logs/medicalexplainer.log
+```
+
+## Troubleshooting
+
+### Error: "Dataset file not found"
+- Verify that the dataset path is correct
+- Use absolute paths if you have issues with relative paths
+
+### Error: "Model not found in models dictionary"
+- Verify that the model name is in the `models` dictionary in `llm.py`
+- Check the spelling of the model name
+
+### Error with Ollama models
+- Make sure Ollama is installed: `ollama --version`
+- Download the model: `ollama pull model-name`
+- Verify that Ollama is running: `ollama list`
+
+### Error with API models (Gemini)
+- Verify that the API key is configured in `.env`
+- Verify that you have available credits
+- Check the API rate limits
+
+### Answers with "PROBLEM"
+- May be API timeout errors
+- May be response parsing issues
+- Check the logs for more details
+
+## Contributing
+
+To contribute to the project:
+
+1. Fork the repository
+2. Create a branch with your feature: `git checkout -b feature/new-feature`
+3. Commit changes: `git commit -am 'Add new feature'`
+4. Push to the branch: `git push origin feature/new-feature`
+5. Create Pull Request
+
+## License
+
+See `LICENSE` file for more details.
+
+## Contact
+
+- GitHub: [@hossam1522](https://github.com/hossam1522)
+- Repository: [MedicalExplAIner](https://github.com/hossam1522/MedicalExplAIner)
