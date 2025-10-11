@@ -131,7 +131,8 @@ class LLM:
 
         Use these answers to synthesize a comprehensive and accurate answer to the main question: {question}
 
-        Provide a clear and concise answer that integrates all relevant information from the sub-answers."""
+        Provide a clear and concise answer that integrates all relevant information from the sub-answers.
+        Approximately 10-15 words."""
 
         prompt = ChatPromptTemplate.from_template(template)
         messages = {"context": self.format_qa_pairs(subquestions, answers), "question": question}
