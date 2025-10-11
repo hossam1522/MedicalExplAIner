@@ -131,7 +131,8 @@ class LLM:
 
         Use these answers to synthesize a comprehensive and accurate answer to the main question: {question}
 
-        Provide a clear and concise answer that integrates all relevant information from the sub-answers."""
+        Provide a clear and concise answer that integrates all relevant information from the sub-answers.
+        Approximately 10-15 words."""
 
         prompt = ChatPromptTemplate.from_template(template)
         messages = {"context": self.format_qa_pairs(subquestions, answers), "question": question}
@@ -182,12 +183,15 @@ class LLM_QWEN_2_5_7B(LLM):
         """
         super().__init__(tools)
 
-        self.model = "qwen2.5"
+        self.model = "qwen2.5:7b-instruct-fp16"
         self.tools = tools
 
         llm = ChatOllama(
             model=self.model,
             num_ctx=32768,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=20,
         )
 
         self.llm = llm
@@ -212,7 +216,9 @@ class LLM_GEMMA_3(LLM):
 
         llm = ChatGoogleGenerativeAI(
             model=self.model,
-            temperature=0,
+            temperature=0.1,
+            top_p=0.95,
+            top_k=64,
             max_tokens=None,
             timeout=None,
         )
@@ -220,54 +226,7 @@ class LLM_GEMMA_3(LLM):
         self.llm = llm
         logger.debug("Using Gemma 3 LLM")
 
-class LLM_LLAMA2_7B(LLM):
-    """
-    Class for Llama 2 7B LLM
-    """
-    def __init__(self, tools: bool = False):
-        """
-        Initialize the Llama 2 7B LLM
-
-        Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
-        """
-        super().__init__(tools)
-
-        self.model = "llama2"
-        self.tools = tools
-
-        llm = ChatOllama(
-            model=self.model,
-        )
-
-        self.llm = llm
-        logger.debug("Using Llama 2 7B LLM")
-
-class LLM_MISTRAL_7B(LLM):
-    """
-    Class for Mistral 7B LLM using Ollama
-    """
-    def __init__(self, tools: bool = False):
-        """
-        Initialize the Mistral 7B LLM
-
-        Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
-        """
-        super().__init__(tools)
-
-        self.model = "mistral"
-        self.tools = tools
-
-        llm = ChatOllama(
-            model=self.model,
-            num_ctx=32768,
-        )
-
-        self.llm = llm
-        logger.debug("Using Mistral 7B LLM using Ollama")
-
-class LLM_LLAMA3_8B(LLM):
+class LLM_LLAMA3_1_8B(LLM):
     """
     Class for Llama3.1 8B LLM
     """
@@ -280,51 +239,27 @@ class LLM_LLAMA3_8B(LLM):
         """
         super().__init__(tools)
 
-        self.model = "llama3.1"
+        self.model = "llama3.1:8b-instruct-fp16"
         self.tools = tools
 
         llm = ChatOllama(
             model=self.model,
-            num_ctx=128000,
+            num_ctx=131072,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=20,
         )
 
         self.llm = llm
         logger.debug("Using Llama3.1 8B LLM")
-
-class LLM_GEMMA3_12B_Ollama(LLM):
-    """
-    Class for Gemma3 12B LLM using Ollama
-    """
-    def __init__(self, tools: bool = False):
-        """
-        Initialize the Gemma3 12B LLM
-
-        Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
-        """
-        super().__init__(tools)
-
-        self.model = "gemma3:12b"
-        self.tools = tools
-
-        llm = ChatOllama(
-            model=self.model,
-            num_ctx=128000,
-        )
-
-        self.llm = llm
-        logger.debug("Using Gemma3 12B LLM using Ollama")
 
 """
 This dictionary maps model names to their respective LLM classes and
 if windows context size is small or big.
 """
 models = {
-    "gemini-2.0-flash": (LLM_GEMINI, "big"),
-    "qwen2.5-7b": (LLM_QWEN_2_5_7B, "big"),
-    "gemma-3-27b": (LLM_GEMMA_3, "big"),
-    "llama2-7b": (LLM_LLAMA2_7B, "small"),
-    "mistral-7b": (LLM_MISTRAL_7B, "big"),
-    "llama3.1-8b": (LLM_LLAMA3_8B, "big"),
-    "gemma-3-12b-ollama": (LLM_GEMMA3_12B_Ollama, "big"),
+    "gemini-2.0-flash": LLM_GEMINI,
+    "qwen2.5-7b": LLM_QWEN_2_5_7B,
+    "gemma-3-27b": LLM_GEMMA_3,
+    "llama3.1-8b": LLM_LLAMA3_1_8B,
 }

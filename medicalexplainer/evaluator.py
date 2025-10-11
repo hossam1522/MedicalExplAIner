@@ -42,7 +42,7 @@ class Evaluator:
         You ONLY can answer YES/NO"""
 
         prompt = ChatPromptTemplate.from_template(template)
-        llm = models["gemma-3-27b"][0]()
+        llm = models["gemma-3-27b"]()
 
         chain = (
             prompt
@@ -88,7 +88,7 @@ class Evaluator:
                         logger.debug(f"Attempting to process question {idx + 1}, attempt: {attempt + 1}")
                         try:
                             # Initialize LLM for the current model
-                            llm = models[f"{model}"][0](tools=tools)
+                            llm = models[f"{model}"](tools=tools)
 
                             # Step 1: Generate sub-questions
                             if not isinstance(llm.llm, ChatOllama):
