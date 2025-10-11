@@ -42,7 +42,7 @@ class Evaluator:
         You ONLY can answer YES/NO"""
 
         prompt = ChatPromptTemplate.from_template(template)
-        llm = models["gemma-3-27b"]
+        llm = models["gemma-3-27b"]()
 
         chain = (
             prompt
