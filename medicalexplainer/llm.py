@@ -11,7 +11,7 @@ from langchain_ollama import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-configure_logger(name="llm", filepath=Path(__file__).parent / "logs/medicalexplainer.log")
+configure_logger(name="llm", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
 logger = logging.getLogger("llm")
 
 

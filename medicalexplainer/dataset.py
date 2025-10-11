@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from medicalexplainer.logger import configure_logger
 
-configure_logger(name="dataset", filepath=Path(__file__).parent / "logs/medicalexplainer.log")
+configure_logger(name="dataset", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
 logger = logging.getLogger("dataset")
 
 
