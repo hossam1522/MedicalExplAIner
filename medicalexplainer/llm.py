@@ -257,7 +257,7 @@ class LLM_LLAMA3_1_8B(LLM):
             temperature=0.7,
             top_p=0.8,
             top_k=20,
-            max_length=131072,
+            max_new_tokens=131072,
         )
 
         self.llm = llm
