@@ -259,7 +259,8 @@ class LLM_LLAMA3_1_8B(LLM):
             top_k=20,
             tensor_parallel_size=2,
             vllm_kwargs={
-                "max_num_seqs": 1
+                "max_num_seqs": 1,
+                "disable_custom_all_reduce": True,
             },
             #max_new_tokens=131072,
         )
