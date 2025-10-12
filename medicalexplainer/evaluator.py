@@ -10,6 +10,7 @@ from medicalexplainer.logger import configure_logger
 from langchain_core.output_parsers import StrOutputParser
 from langchain.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
+from langchain_community.llms import VLLM
 
 configure_logger(name="evaluator", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
 logger = logging.getLogger("evaluator")
@@ -91,7 +92,7 @@ class Evaluator:
                             llm = models[f"{model}"](tools=tools)
 
                             # Step 1: Generate sub-questions
-                            if not isinstance(llm.llm, ChatOllama):
+                            if not isinstance(llm.llm, ChatOllama) and not isinstance(llm.llm, VLLM):
                                 time.sleep(2.5)
                             subquestions = llm.get_subquestions(question)
                             logger.debug(f"Generated {len(subquestions)} subquestions for question {idx + 1}")
@@ -99,19 +100,19 @@ class Evaluator:
                             # Step 2: Answer each sub-question with context
                             answers = []
                             for subquestion in subquestions:
-                                if not isinstance(llm.llm, ChatOllama):
+                                if not isinstance(llm.llm, ChatOllama) and not isinstance(llm.llm, VLLM):
                                     time.sleep(2.5)
                                 answer = llm.answer_subquestion(subquestion, context)
                                 answers.append(answer)
 
                             # Step 3: Get final synthesized answer
-                            if not isinstance(llm.llm, ChatOllama):
+                            if not isinstance(llm.llm, ChatOllama) and not isinstance(llm.llm, VLLM):
                                 time.sleep(2.5)
                             final_answer = llm.get_final_answer(question, subquestions, answers)
 
                             # Evaluate the answer
                             try:
-                                if not isinstance(llm.llm, ChatOllama):
+                                if not isinstance(llm.llm, ChatOllama) and not isinstance(llm.llm, VLLM):
                                     time.sleep(2)
                                 answers_eval = self.evaluate_answer(question, final_answer, expected_answer, context)
                             except Exception as e:
