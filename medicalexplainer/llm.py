@@ -8,7 +8,6 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import BaseMessage
 from langchain_ollama import ChatOllama
-from langchain_community.llms import VLLM
 from langchain_core.output_parsers import StrOutputParser
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -240,29 +239,15 @@ class LLM_LLAMA3_1_8B(LLM):
         """
         super().__init__(tools)
 
-        #self.model = "llama3.1:8b-instruct-fp16"
-        self.model = "meta-llama/Llama-3.1-8B-Instruct"
+        self.model = "llama3.1:8b-instruct-fp16"
         self.tools = tools
 
-        #llm = ChatOllama(
-        #    model=self.model,
-        #    num_ctx=100000,
-        #    temperature=0.7,
-        #    top_p=0.8,
-        #    top_k=20,
-        #)
-        llm = VLLM(
+        llm = ChatOllama(
             model=self.model,
-            trust_remote_code=True,
+            num_ctx=32768,
             temperature=0.7,
             top_p=0.8,
             top_k=20,
-            tensor_parallel_size=2,
-            vllm_kwargs={
-                "max_num_seqs": 1,
-                "disable_custom_all_reduce": True,
-            },
-            #max_new_tokens=131072,
         )
 
         self.llm = llm
