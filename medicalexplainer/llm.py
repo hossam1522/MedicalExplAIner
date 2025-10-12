@@ -244,7 +244,7 @@ class LLM_LLAMA3_1_8B(LLM):
 
         llm = ChatOllama(
             model=self.model,
-            num_ctx=131072,
+            num_ctx=100000,
             temperature=0.7,
             top_p=0.8,
             top_k=20,
