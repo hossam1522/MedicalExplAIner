@@ -253,6 +253,33 @@ class LLM_LLAMA3_1_8B(LLM):
         self.llm = llm
         logger.debug("Using Llama3.1 8B LLM")
 
+class LLM_PHI4(LLM):
+    """
+    Class for Phi4 14B LLM
+    """
+    def __init__(self, tools: bool = False):
+        """
+        Initialize the Phi4 14B LLM
+
+        Args:
+            tools (bool): Whether to use tools or not (not used in medical context)
+        """
+        super().__init__(tools)
+
+        self.model = "phi4:14b-fp16"
+        self.tools = tools
+
+        llm = ChatOllama(
+            model=self.model,
+            num_ctx=32768,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=20,
+        )
+
+        self.llm = llm
+        logger.debug("Using Phi4 14B LLM")
+
 """
 This dictionary maps model names to their respective LLM classes and
 if windows context size is small or big.
@@ -262,4 +289,5 @@ models = {
     "qwen2.5-7b": LLM_QWEN_2_5_7B,
     "gemma-3-27b": LLM_GEMMA_3,
     "llama3.1-8b": LLM_LLAMA3_1_8B,
+    "phi4-14b": LLM_PHI4,
 }
