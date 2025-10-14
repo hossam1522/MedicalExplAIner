@@ -189,7 +189,7 @@ class LLM_QWEN_2_5_7B(LLM):
         llm = ChatOllama(
             model=self.model,
             num_ctx=32768,
-            temperature=0.7,
+            temperature=0.1,
             top_p=0.8,
             top_k=20,
         )
@@ -245,7 +245,7 @@ class LLM_LLAMA3_1_8B(LLM):
         llm = ChatOllama(
             model=self.model,
             num_ctx=32768,
-            temperature=0.7,
+            temperature=0.1,
             top_p=0.8,
             top_k=20,
         )
@@ -272,7 +272,7 @@ class LLM_PHI4(LLM):
         llm = ChatOllama(
             model=self.model,
             num_ctx=32768,
-            temperature=0.7,
+            temperature=0.1,
             top_p=0.8,
             top_k=20,
         )
