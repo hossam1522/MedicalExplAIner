@@ -405,7 +405,7 @@ You ONLY can answer YES/NO"""
         dir_path = f"medicalexplainer/data/evaluation/{model_name}_tools/" if tools else f"medicalexplainer/data/evaluation/{model_name}/"
         os.makedirs(dir_path, exist_ok=True)
 
-        results_path = Path(dir_path) / "gpt5_nano_evaluation_results.json"
+        results_path = Path(dir_path) / "gpt_batch_evaluation_results.json"
 
         with open(results_path, "w") as f:
             json.dump(results, f, indent=2)
