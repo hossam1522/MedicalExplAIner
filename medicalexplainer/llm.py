@@ -197,6 +197,33 @@ class LLM_QWEN_2_5_7B(LLM):
         self.llm = llm
         logger.debug("Using Qwen2.5 7B LLM")
 
+class LLM_QWEN_2_5_14B(LLM):
+    """
+    Class for Qwen2.5 14B LLM
+    """
+    def __init__(self, tools: bool = False):
+        """
+        Initialize the Qwen2.5 14B LLM
+
+        Args:
+            tools (bool): Whether to use tools or not (not used in medical context)
+        """
+        super().__init__(tools)
+
+        self.model = "qwen2.5:14b-instruct-fp16"
+        self.tools = tools
+
+        llm = ChatOllama(
+            model=self.model,
+            num_ctx=32768,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=20,
+        )
+
+        self.llm = llm
+        logger.debug("Using Qwen2.5 14B LLM")
+
 class LLM_GEMMA_3(LLM):
     """
     Class for Google Gemma 3 LLM
@@ -287,6 +314,7 @@ if windows context size is small or big.
 models = {
     "gemini-2.5-flash-lite": LLM_GEMINI,
     "qwen2.5-7b": LLM_QWEN_2_5_7B,
+    "qwen2.5-14b": LLM_QWEN_2_5_14B,
     "gemma-3-27b": LLM_GEMMA_3,
     "llama3.1-8b": LLM_LLAMA3_1_8B,
     "phi4-14b": LLM_PHI4,
