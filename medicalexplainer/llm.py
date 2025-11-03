@@ -157,7 +157,7 @@ class LLM_GEMINI(LLM):
         super().__init__(tools)
         os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
 
-        self.model = "gemini-2.0-flash"
+        self.model = "gemini-2.5-flash-lite"
         self.tools = tools
 
         llm = ChatGoogleGenerativeAI(
@@ -285,7 +285,7 @@ This dictionary maps model names to their respective LLM classes and
 if windows context size is small or big.
 """
 models = {
-    "gemini-2.0-flash": LLM_GEMINI,
+    "gemini-2.5-flash-lite": LLM_GEMINI,
     "qwen2.5-7b": LLM_QWEN_2_5_7B,
     "gemma-3-27b": LLM_GEMMA_3,
     "llama3.1-8b": LLM_LLAMA3_1_8B,
