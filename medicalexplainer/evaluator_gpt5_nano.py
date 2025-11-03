@@ -162,9 +162,14 @@ You ONLY can answer YES/NO"""
 
             if batch.status == "completed":
                 logger.info(f"Batch {batch_id} completed successfully")
+                logger.debug(f"Batch object: {batch}")
+                logger.debug(f"Batch output_file_id: {batch.output_file_id}")
+                logger.debug(f"Batch error_file_id: {batch.error_file_id}")
                 return batch
             elif batch.status in ["failed", "expired", "cancelled"]:
                 logger.error(f"Batch {batch_id} ended with status: {batch.status}")
+                if hasattr(batch, 'errors'):
+                    logger.error(f"Batch errors: {batch.errors}")
                 raise Exception(f"Batch failed with status: {batch.status}")
 
             time.sleep(poll_interval)
@@ -179,8 +184,43 @@ You ONLY can answer YES/NO"""
         Returns:
             List[Dict]: List of results with evaluations and logprobs
         """
+        # Check if output_file_id exists
+        if not batch.output_file_id:
+            error_msg = f"Batch {batch.id} has no output_file_id. Status: {batch.status}"
+            logger.error(error_msg)
+            logger.error(f"Batch request counts: {batch.request_counts}")
+
+            # Download error file if available
+            if batch.error_file_id:
+                logger.error(f"Downloading error file: {batch.error_file_id}")
+                try:
+                    error_file_response = self.client.files.content(batch.error_file_id)
+                    error_file_path = Path(__file__).parent / "data" / "evaluation" / "batch_results" / f"batch_errors_{batch.id}.jsonl"
+                    error_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    with open(error_file_path, "w") as f:
+                        f.write(error_file_response.text)
+
+                    logger.error(f"Error file saved to: {error_file_path}")
+
+                    # Parse and log errors
+                    with open(error_file_path, "r") as f:
+                        for idx, line in enumerate(f):
+                            if line.strip():
+                                error_data = json.loads(line)
+                                logger.error(f"Error {idx + 1}: {json.dumps(error_data, indent=2)}")
+
+                except Exception as e:
+                    logger.error(f"Failed to download error file: {e}")
+
+            if hasattr(batch, 'errors') and batch.errors:
+                logger.error(f"Batch errors: {batch.errors}")
+
+            raise Exception(error_msg)
+
         # Download the results file
         result_file_id = batch.output_file_id
+        logger.info(f"Downloading results from file: {result_file_id}")
         file_response = self.client.files.content(result_file_id)
 
         # Save results to local file
