@@ -12,23 +12,23 @@ from medicalexplainer.llm import models
 from medicalexplainer.logger import configure_logger
 from langchain_ollama import ChatOllama
 
-configure_logger(name="evaluator_gpt5_nano", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
-logger = logging.getLogger("evaluator_gpt5_nano")
+configure_logger(name="evaluator_gpt_batch", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
+logger = logging.getLogger("evaluator_gpt_batch")
 
 
-class EvaluatorGPT5Nano(Evaluator):
+class EvaluatorGPTBatch(Evaluator):
     """
-    Evaluator that uses GPT-5 nano with OpenAI's Batch API to evaluate answers
+    Evaluator that uses a batch model with OpenAI's Batch API to evaluate answers
     and obtain logprobs for YES/NO responses.
     """
 
     def __init__(self):
-        """Initialize the GPT-5 nano evaluator with OpenAI client."""
+        """Initialize the batch evaluator with OpenAI client."""
         super().__init__()
         load_dotenv()
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = "gpt-5-nano-2025-08-07"
-        logger.info(f"Initialized EvaluatorGPT5Nano with model: {self.model}")
+        self.model = "gpt-4.1-nano"
+        logger.info(f"Initialized EvaluatorGPTBatch with model: {self.model}")
 
     def create_evaluation_request(
         self,

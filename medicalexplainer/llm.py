@@ -168,7 +168,7 @@ class LLM_GEMINI(LLM):
         )
 
         self.llm = llm
-        logger.debug("Using Gemini 2.0 Flash LLM")
+        logger.debug("Using Gemini 2.5 Flash Lite LLM")
 
 class LLM_QWEN_2_5_7B(LLM):
     """

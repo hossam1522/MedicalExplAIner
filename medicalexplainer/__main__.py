@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from medicalexplainer.logger import configure_logger
 from medicalexplainer.evaluator import Evaluator
-from medicalexplainer.evaluator_gpt5_nano import EvaluatorGPT5Nano
+from medicalexplainer.evaluator_gpt_batch import EvaluatorGPTBatch
 
 configure_logger(name="main", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
 logger = logging.getLogger("main")
@@ -62,7 +62,7 @@ if __name__ == "__main__":
     if args.limit:
         logger.info(f"Limiting evaluation to {args.limit} questions")
 
-    evaluator = EvaluatorGPT5Nano()
+    evaluator = EvaluatorGPTBatch()
     #evaluator = Evaluator()
 
     try:
