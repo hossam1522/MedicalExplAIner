@@ -82,7 +82,7 @@ You ONLY can answer YES/NO"""
         dataset: Dataset,
         model_name: str,
         llm_answers: List[Dict],
-        max_requests_per_batch: int = 500
+        max_requests_per_batch: int = 200
     ) -> List[str]:
         """
         Create JSONL files with evaluation requests, splitting into multiple batches if needed.
