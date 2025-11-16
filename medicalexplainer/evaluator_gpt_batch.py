@@ -27,7 +27,7 @@ class EvaluatorGPTBatch(Evaluator):
         super().__init__()
         load_dotenv()
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = "gpt-4.1-nano"
+        self.model = "gpt-4o-mini"
         logger.info(f"Initialized EvaluatorGPTBatch with model: {self.model}")
 
     def create_evaluation_request(
