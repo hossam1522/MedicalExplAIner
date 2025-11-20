@@ -32,7 +32,7 @@ run:
 		--models $(MODELS) --subtasks
 
 run-nodiv:
-	python -m medicalexplainer \
+	uv run python -m medicalexplainer \
 		--dataset medicalexplainer/data/test.final.json \
 		--models $(MODELS)
 
