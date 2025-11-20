@@ -68,7 +68,7 @@ class Evaluator:
         return answer
 
     def evaluate(
-        self, models_to_evaluate: list, json_data_path: str, tools: bool = False
+        self, models_to_evaluate: list, json_data_path: str, use_subtasks: bool = False
     ) -> None:
         """
         Evaluates the models on medical questions from JSON dataset.
@@ -76,7 +76,7 @@ class Evaluator:
         Args:
             models_to_evaluate (list): List of models to evaluate.
             json_data_path (str): Path to the JSON dataset file.
-            tools (bool): Whether to use tools or not.
+            use_subtasks (bool): Whether to use subtasks division or not.
         """
         for model in models_to_evaluate:
             all_results = []
@@ -104,30 +104,38 @@ class Evaluator:
                         )
                         try:
                             # Initialize LLM for the current model
-                            llm = models[f"{model}"](tools=tools)
+                            llm = models[f"{model}"](use_subtasks=use_subtasks)
 
-                            # Step 1: Generate sub-questions
-                            if not isinstance(llm.llm, ChatOllama):
-                                time.sleep(2.5)
-                            subquestions = llm.get_subquestions(question)
-                            logger.debug(
-                                f"Generated {len(subquestions)} subquestions for question {idx + 1}"
-                            )
-
-                            # Step 2: Answer each sub-question with context
-                            answers = []
-                            for subquestion in subquestions:
+                            if use_subtasks:
+                                # Step 1: Generate sub-questions
                                 if not isinstance(llm.llm, ChatOllama):
                                     time.sleep(2.5)
-                                answer = llm.answer_subquestion(subquestion, context)
-                                answers.append(answer)
+                                subquestions = llm.get_subquestions(question)
+                                logger.debug(
+                                    f"Generated {len(subquestions)} subquestions for question {idx + 1}"
+                                )
 
-                            # Step 3: Get final synthesized answer
-                            if not isinstance(llm.llm, ChatOllama):
-                                time.sleep(2.5)
-                            final_answer = llm.get_final_answer(
-                                question, subquestions, answers
-                            )
+                                # Step 2: Answer each sub-question with context
+                                answers = []
+                                for subquestion in subquestions:
+                                    if not isinstance(llm.llm, ChatOllama):
+                                        time.sleep(2.5)
+                                    answer = llm.answer_subquestion(
+                                        subquestion, context
+                                    )
+                                    answers.append(answer)
+
+                                # Step 3: Get final synthesized answer
+                                if not isinstance(llm.llm, ChatOllama):
+                                    time.sleep(2.5)
+                                final_answer = llm.get_final_answer(
+                                    question, subquestions, answers
+                                )
+                            else:
+                                # Direct answer
+                                if not isinstance(llm.llm, ChatOllama):
+                                    time.sleep(2.5)
+                                final_answer = llm.answer_subquestion(question, context)
 
                             # Evaluate the answer
                             try:
@@ -157,13 +165,13 @@ class Evaluator:
                         }
                     )
 
-                    if tools:
+                    if use_subtasks:
                         logger.info(
-                            f"Model: {model}_tools, Question ID: {idx}, Answer Eval: {answers_eval}"
+                            f"Model: {model}, Question ID: {idx}, Answer Eval: {answers_eval}"
                         )
                     else:
                         logger.info(
-                            f"Model: {model}, Question ID: {idx}, Answer Eval: {answers_eval}"
+                            f"Model: {model}_nodiv, Question ID: {idx}, Answer Eval: {answers_eval}"
                         )
 
             except Exception as e:
@@ -171,11 +179,11 @@ class Evaluator:
                 time.sleep(10)
 
             logger.debug("Generating pie charts")
-            self.generate_pie_charts(all_results, tools)
+            self.generate_pie_charts(all_results, use_subtasks)
             logger.debug("Generating bar charts")
-            self.generate_bar_charts(all_results, tools)
+            self.generate_bar_charts(all_results, use_subtasks)
 
-    def generate_bar_charts(self, results: list, tools: bool = False) -> None:
+    def generate_bar_charts(self, results: list, use_subtasks: bool = False) -> None:
         """
         Generate grouped bar charts for correct/incorrect answers per question for each model.
         """
@@ -222,10 +230,12 @@ class Evaluator:
                 ]
             )
 
-            if tools:
-                title = f"Correct and incorrect answers by question: {model} with tools"
-            else:
+            if use_subtasks:
                 title = f"Correct and incorrect answers by question: {model}"
+            else:
+                title = (
+                    f"Correct and incorrect answers by question: {model} (no division)"
+                )
 
             fig.update_layout(
                 barmode="group",
@@ -239,10 +249,10 @@ class Evaluator:
             )
 
             dir_path = ""
-            if tools:
-                dir_path = f"medicalexplainer/data/evaluation/{model}_tools/"
-            else:
+            if use_subtasks:
                 dir_path = f"medicalexplainer/data/evaluation/{model}/"
+            else:
+                dir_path = f"medicalexplainer/data/evaluation/{model}_nodiv/"
             os.makedirs(dir_path, exist_ok=True)
 
             with open(f"{dir_path}answers.txt", "w") as f:
@@ -258,7 +268,7 @@ class Evaluator:
 
             fig.write_image(f"{dir_path}grouped_bar_answers.png")
 
-    def generate_pie_charts(self, results: list, tools: bool = False) -> None:
+    def generate_pie_charts(self, results: list, use_subtasks: bool = False) -> None:
         """
         Generate pie charts from the evaluation results.
 
@@ -295,10 +305,10 @@ class Evaluator:
             labels = list(counts.keys())
             values = [round((count / total) * 100, 2) for count in counts.values()]
 
-            if tools:
-                title = f"Correct and incorrect answers: {model} with tools"
-            else:
+            if use_subtasks:
                 title = f"Correct and incorrect answers: {model}"
+            else:
+                title = f"Correct and incorrect answers: {model} (no division)"
 
             fig = px.pie(
                 names=labels,
@@ -308,10 +318,10 @@ class Evaluator:
             )
 
             dir_path = ""
-            if tools:
-                dir_path = f"medicalexplainer/data/evaluation/{model}_tools/"
-            else:
+            if use_subtasks:
                 dir_path = f"medicalexplainer/data/evaluation/{model}/"
+            else:
+                dir_path = f"medicalexplainer/data/evaluation/{model}_nodiv/"
             os.makedirs(dir_path, exist_ok=True)
 
             with open(f"{dir_path}answers_pie_chart.txt", "w") as f:

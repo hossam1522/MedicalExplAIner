@@ -389,7 +389,10 @@ You ONLY can answer YES/NO"""
         return results
 
     def evaluate_with_batch(
-        self, models_to_evaluate: List[str], json_data_path: str, tools: bool = False
+        self,
+        models_to_evaluate: List[str],
+        json_data_path: str,
+        use_subtasks: bool = False,
     ) -> None:
         """
         Evaluate models using the Batch API.
@@ -397,7 +400,7 @@ You ONLY can answer YES/NO"""
         Args:
             models_to_evaluate (List[str]): List of models to evaluate
             json_data_path (str): Path to the JSON dataset file
-            tools (bool): Whether to use tools or not
+            use_subtasks (bool): Whether to use subtasks division or not
         """
         for model_name in models_to_evaluate:
             logger.info(f"Starting evaluation for model: {model_name}")
@@ -409,7 +412,7 @@ You ONLY can answer YES/NO"""
 
                 # Generate answers with the model being evaluated
                 llm_answers = []
-                llm = models[model_name](tools=tools)
+                llm = models[model_name](use_subtasks=use_subtasks)
 
                 for idx, item in enumerate(dataset.dataset_items):
                     logger.info(
@@ -417,35 +420,51 @@ You ONLY can answer YES/NO"""
                     )
 
                     try:
-                        # Generate sub-questions
-                        if not isinstance(llm.llm, ChatOllama):
-                            time.sleep(2.5)
-                        subquestions = llm.get_subquestions(item["question"])
-
-                        # Answer sub-questions
-                        answers = []
-                        for subq in subquestions:
+                        if use_subtasks:
+                            # Generate sub-questions
                             if not isinstance(llm.llm, ChatOllama):
                                 time.sleep(2.5)
-                            answer = llm.answer_subquestion(subq, item["context"])
-                            answers.append(answer)
+                            subquestions = llm.get_subquestions(item["question"])
 
-                        # Get final answer
-                        if not isinstance(llm.llm, ChatOllama):
-                            time.sleep(2.5)
-                        final_answer = llm.get_final_answer(
-                            item["question"], subquestions, answers
-                        )
+                            # Answer sub-questions
+                            answers = []
+                            for subq in subquestions:
+                                if not isinstance(llm.llm, ChatOllama):
+                                    time.sleep(2.5)
+                                answer = llm.answer_subquestion(subq, item["context"])
+                                answers.append(answer)
 
-                        llm_answers.append(
-                            {
-                                "question_id": idx,
-                                "question": item["question"],
-                                "subquestions": subquestions,
-                                "sub_answers": answers,
-                                "final_answer": final_answer,
-                            }
-                        )
+                            # Get final answer
+                            if not isinstance(llm.llm, ChatOllama):
+                                time.sleep(2.5)
+                            final_answer = llm.get_final_answer(
+                                item["question"], subquestions, answers
+                            )
+
+                            llm_answers.append(
+                                {
+                                    "question_id": idx,
+                                    "question": item["question"],
+                                    "subquestions": subquestions,
+                                    "sub_answers": answers,
+                                    "final_answer": final_answer,
+                                }
+                            )
+                        else:
+                            # Direct answer
+                            if not isinstance(llm.llm, ChatOllama):
+                                time.sleep(2.5)
+                            final_answer = llm.answer_subquestion(
+                                item["question"], item["context"]
+                            )
+
+                            llm_answers.append(
+                                {
+                                    "question_id": idx,
+                                    "question": item["question"],
+                                    "final_answer": final_answer,
+                                }
+                            )
 
                     except Exception as e:
                         logger.error(f"Error generating answer for question {idx}: {e}")
@@ -498,19 +517,19 @@ You ONLY can answer YES/NO"""
                     )
 
                 # Save detailed results with logprobs
-                self._save_detailed_results(model_name, all_results, tools)
+                self._save_detailed_results(model_name, all_results, use_subtasks)
 
                 # Generate visualizations
                 logger.info("Generating visualizations")
-                self.generate_pie_charts(all_results, tools)
-                self.generate_bar_charts(all_results, tools)
+                self.generate_pie_charts(all_results, use_subtasks)
+                self.generate_bar_charts(all_results, use_subtasks)
 
             except Exception as e:
                 logger.error(f"Error evaluating model {model_name}: {e}")
                 raise
 
     def _save_detailed_results(
-        self, model_name: str, results: List[Dict], tools: bool = False
+        self, model_name: str, results: List[Dict], use_subtasks: bool = False
     ) -> None:
         """
         Save detailed results including logprobs to a JSON file.
@@ -518,12 +537,12 @@ You ONLY can answer YES/NO"""
         Args:
             model_name (str): Name of the model
             results (List[Dict]): List of evaluation results
-            tools (bool): Whether tools were used
+            use_subtasks (bool): Whether subtasks were used
         """
         dir_path = (
-            f"medicalexplainer/data/evaluation/{model_name}_tools/"
-            if tools
-            else f"medicalexplainer/data/evaluation/{model_name}/"
+            f"medicalexplainer/data/evaluation/{model_name}/"
+            if use_subtasks
+            else f"medicalexplainer/data/evaluation/{model_name}_nodiv/"
         )
         os.makedirs(dir_path, exist_ok=True)
 

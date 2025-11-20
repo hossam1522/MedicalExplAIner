@@ -33,9 +33,9 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--tools",
+        "--subtasks",
         action="store_true",
-        help="Enable tools usage (not recommended for medical context)",
+        help="Enable subtasks division (default: False)",
     )
 
     parser.add_argument(
@@ -59,7 +59,7 @@ if __name__ == "__main__":
 
     logger.info(f"Starting evaluation with dataset: {args.dataset}")
     logger.info(f"Models to evaluate: {args.models}")
-    logger.info(f"Tools enabled: {args.tools}")
+    logger.info(f"Subtasks enabled: {args.subtasks}")
 
     if args.limit:
         logger.info(f"Limiting evaluation to {args.limit} questions")
@@ -72,7 +72,7 @@ if __name__ == "__main__":
         evaluator.evaluate_with_batch(
             models_to_evaluate=args.models,
             json_data_path=str(dataset_path),
-            tools=args.tools,
+            use_subtasks=args.subtasks,
         )
         logger.info("Evaluation completed successfully!")
     except Exception as e:

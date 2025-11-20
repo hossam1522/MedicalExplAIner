@@ -19,17 +19,17 @@ logger = logging.getLogger("llm")
 
 
 class LLM:
-    def __init__(self, tools: bool = False):
+    def __init__(self, use_subtasks: bool = False):
         """
         Initialize the LLM object
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
         load_dotenv()
         self.llm = None
         self.model = None
-        self.tools = tools
+        self.use_subtasks = use_subtasks
         self.context = None  # Will be set when answering questions
 
     def call_llm(self, messages: list[BaseMessage]) -> str:
@@ -158,18 +158,18 @@ class LLM_GEMINI(LLM):
     Class for Google Gemini LLM
     """
 
-    def __init__(self, tools: bool = False):
+    def __init__(self, use_subtasks: bool = False):
         """
         Initialize the Gemini LLM
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
-        super().__init__(tools)
+        super().__init__(use_subtasks)
         os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
 
         self.model = "gemini-2.5-flash-lite"
-        self.tools = tools
+        self.use_subtasks = use_subtasks
 
         llm = ChatGoogleGenerativeAI(
             model=self.model,
@@ -187,17 +187,17 @@ class LLM_QWEN_2_5_7B(LLM):
     Class for Qwen2.5 7B LLM
     """
 
-    def __init__(self, tools: bool = False):
+    def __init__(self, use_subtasks: bool = False):
         """
         Initialize the Qwen2.5 7B LLM
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
-        super().__init__(tools)
+        super().__init__(use_subtasks)
 
         self.model = "qwen2.5:7b-instruct-fp16"
-        self.tools = tools
+        self.use_subtasks = use_subtasks
 
         llm = ChatOllama(
             model=self.model,
@@ -216,17 +216,17 @@ class LLM_QWEN_2_5_14B(LLM):
     Class for Qwen2.5 14B LLM
     """
 
-    def __init__(self, tools: bool = False):
+    def __init__(self, use_subtasks: bool = False):
         """
         Initialize the Qwen2.5 14B LLM
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
-        super().__init__(tools)
+        super().__init__(use_subtasks)
 
         self.model = "qwen2.5:14b-instruct-fp16"
-        self.tools = tools
+        self.use_subtasks = use_subtasks
 
         llm = ChatOllama(
             model=self.model,
@@ -245,18 +245,18 @@ class LLM_GEMMA_3(LLM):
     Class for Google Gemma 3 LLM
     """
 
-    def __init__(self, tools: bool = False):
+    def __init__(self, use_subtasks: bool = False):
         """
         Initialize the Gemma 3 LLM
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
-        super().__init__(tools)
+        super().__init__(use_subtasks)
         os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
 
         self.model = "gemma-3-27b-it"
-        self.tools = tools
+        self.use_subtasks = use_subtasks
 
         llm = ChatGoogleGenerativeAI(
             model=self.model,
@@ -276,17 +276,17 @@ class LLM_LLAMA3_1_8B(LLM):
     Class for Llama3.1 8B LLM
     """
 
-    def __init__(self, tools: bool = False):
+    def __init__(self, use_subtasks: bool = False):
         """
         Initialize the Llama3.1 8B LLM
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
-        super().__init__(tools)
+        super().__init__(use_subtasks)
 
         self.model = "llama3.1:8b-instruct-fp16"
-        self.tools = tools
+        self.use_subtasks = use_subtasks
 
         llm = ChatOllama(
             model=self.model,
@@ -305,17 +305,17 @@ class LLM_PHI4(LLM):
     Class for Phi4 14B LLM
     """
 
-    def __init__(self, tools: bool = False):
+    def __init__(self, use_subtasks: bool = False):
         """
         Initialize the Phi4 14B LLM
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
-        super().__init__(tools)
+        super().__init__(use_subtasks)
 
         self.model = "phi4:14b-fp16"
-        self.tools = tools
+        self.use_subtasks = use_subtasks
 
         llm = ChatOllama(
             model=self.model,
