@@ -1,12 +1,14 @@
 import argparse
-import sys
 import logging
+import sys
 from pathlib import Path
-from medicalexplainer.logger import configure_logger
-from medicalexplainer.evaluator import Evaluator
-from medicalexplainer.evaluator_gpt_batch import EvaluatorGPTBatch
 
-configure_logger(name="main", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
+from medicalexplainer.evaluator_gpt_batch import EvaluatorGPTBatch
+from medicalexplainer.logger import configure_logger
+
+configure_logger(
+    name="main", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log"
+)
 logger = logging.getLogger("main")
 
 
@@ -19,7 +21,7 @@ if __name__ == "__main__":
         "--dataset",
         type=str,
         required=True,
-        help="Path to the JSON dataset file (e.g., medicalexplainer/data/test.final.json)"
+        help="Path to the JSON dataset file (e.g., medicalexplainer/data/test.final.json)",
     )
 
     parser.add_argument(
@@ -27,20 +29,20 @@ if __name__ == "__main__":
         type=str,
         nargs="+",
         default=["gemini-2.0-flash"],
-        help="List of models to evaluate (e.g., gemini-2.0-flash qwen2.5-7b llama3.1-8b)"
+        help="List of models to evaluate (e.g., gemini-2.0-flash qwen2.5-7b llama3.1-8b)",
     )
 
     parser.add_argument(
         "--tools",
         action="store_true",
-        help="Enable tools usage (not recommended for medical context)"
+        help="Enable tools usage (not recommended for medical context)",
     )
 
     parser.add_argument(
         "--limit",
         type=int,
         default=None,
-        help="Limit the number of questions to evaluate (for testing purposes)"
+        help="Limit the number of questions to evaluate (for testing purposes)",
     )
 
     args = parser.parse_args()
@@ -63,14 +65,14 @@ if __name__ == "__main__":
         logger.info(f"Limiting evaluation to {args.limit} questions")
 
     evaluator = EvaluatorGPTBatch()
-    #evaluator = Evaluator()
+    # evaluator = Evaluator()
 
     try:
-        #evaluator.evaluate(
+        # evaluator.evaluate(
         evaluator.evaluate_with_batch(
             models_to_evaluate=args.models,
             json_data_path=str(dataset_path),
-            tools=args.tools
+            tools=args.tools,
         )
         logger.info("Evaluation completed successfully!")
     except Exception as e:

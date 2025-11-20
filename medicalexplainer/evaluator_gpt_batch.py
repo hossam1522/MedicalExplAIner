@@ -1,18 +1,23 @@
-import os
 import json
-import time
 import logging
+import os
+import time
 from pathlib import Path
 from typing import Dict, List
+
 from dotenv import load_dotenv
+from langchain_ollama import ChatOllama
 from openai import OpenAI
-from medicalexplainer.evaluator import Evaluator
+
 from medicalexplainer.dataset import Dataset
+from medicalexplainer.evaluator import Evaluator
 from medicalexplainer.llm import models
 from medicalexplainer.logger import configure_logger
-from langchain_ollama import ChatOllama
 
-configure_logger(name="evaluator_gpt_batch", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
+configure_logger(
+    name="evaluator_gpt_batch",
+    filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log",
+)
 logger = logging.getLogger("evaluator_gpt_batch")
 
 
@@ -27,7 +32,7 @@ class EvaluatorGPTBatch(Evaluator):
         super().__init__()
         load_dotenv()
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = "gpt-4o-mini"
+        self.model = "gpt-4.1-nano"
         logger.info(f"Initialized EvaluatorGPTBatch with model: {self.model}")
 
     def create_evaluation_request(
@@ -36,7 +41,7 @@ class EvaluatorGPTBatch(Evaluator):
         question: str,
         answer_llm: str,
         expected_answer: str,
-        context: str
+        context: str,
     ) -> Dict:
         """
         Create a single evaluation request in the format required by OpenAI Batch API.
@@ -67,14 +72,17 @@ You ONLY can answer YES/NO"""
             "body": {
                 "model": self.model,
                 "messages": [
-                    {"role": "system", "content": "You are a medical expert evaluator. You must respond only with YES or NO."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are a medical expert evaluator. You must respond only with YES or NO.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 "max_tokens": 5,
                 "temperature": 0,
                 "logprobs": True,
-                "top_logprobs": 2
-            }
+                "top_logprobs": 2,
+            },
         }
 
     def create_batch_files(
@@ -82,7 +90,7 @@ You ONLY can answer YES/NO"""
         dataset: Dataset,
         model_name: str,
         llm_answers: List[Dict],
-        max_requests_per_batch: int = 200
+        max_requests_per_batch: int = 200,
     ) -> List[str]:
         """
         Create JSONL files with evaluation requests, splitting into multiple batches if needed.
@@ -101,7 +109,9 @@ You ONLY can answer YES/NO"""
 
         timestamp = int(time.time())
         total_items = len(dataset.dataset_items)
-        num_batches = (total_items + max_requests_per_batch - 1) // max_requests_per_batch
+        num_batches = (
+            total_items + max_requests_per_batch - 1
+        ) // max_requests_per_batch
 
         batch_file_paths = []
 
@@ -109,7 +119,10 @@ You ONLY can answer YES/NO"""
             start_idx = batch_num * max_requests_per_batch
             end_idx = min(start_idx + max_requests_per_batch, total_items)
 
-            batch_file_path = batch_dir / f"batch_{model_name}_{timestamp}_part{batch_num + 1}of{num_batches}.jsonl"
+            batch_file_path = (
+                batch_dir
+                / f"batch_{model_name}_{timestamp}_part{batch_num + 1}of{num_batches}.jsonl"
+            )
 
             with open(batch_file_path, "w") as f:
                 for idx in range(start_idx, end_idx):
@@ -118,14 +131,16 @@ You ONLY can answer YES/NO"""
 
                     request = self.create_evaluation_request(
                         custom_id=f"{model_name}_q{idx}",
-                        question=item['question'],
-                        answer_llm=llm_answer['final_answer'],
-                        expected_answer=item['answer'],
-                        context=item['context']
+                        question=item["question"],
+                        answer_llm=llm_answer["final_answer"],
+                        expected_answer=item["answer"],
+                        context=item["context"],
                     )
                     f.write(json.dumps(request) + "\n")
 
-            logger.info(f"Created batch file {batch_num + 1}/{num_batches}: {batch_file_path} ({end_idx - start_idx} requests)")
+            logger.info(
+                f"Created batch file {batch_num + 1}/{num_batches}: {batch_file_path} ({end_idx - start_idx} requests)"
+            )
             batch_file_paths.append(str(batch_file_path))
 
         return batch_file_paths
@@ -139,7 +154,11 @@ You ONLY can answer YES/NO"""
         """
         try:
             batches = self.client.batches.list(limit=10)
-            in_progress = [b for b in batches.data if b.status in ["validating", "in_progress", "finalizing"]]
+            in_progress = [
+                b
+                for b in batches.data
+                if b.status in ["validating", "in_progress", "finalizing"]
+            ]
 
             if in_progress:
                 logger.warning(f"Found {len(in_progress)} batches in progress:")
@@ -151,7 +170,9 @@ You ONLY can answer YES/NO"""
             logger.error(f"Error checking batch capacity: {e}")
             return True
 
-    def submit_batch(self, batch_file_path: str, max_retries: int = 5, retry_delay: int = 300) -> str:
+    def submit_batch(
+        self, batch_file_path: str, max_retries: int = 5, retry_delay: int = 300
+    ) -> str:
         """
         Upload the batch file to OpenAI and create a batch job.
         Retries if token limit is exceeded.
@@ -166,10 +187,7 @@ You ONLY can answer YES/NO"""
         """
         # Upload the file
         with open(batch_file_path, "rb") as f:
-            batch_input_file = self.client.files.create(
-                file=f,
-                purpose="batch"
-            )
+            batch_input_file = self.client.files.create(file=f, purpose="batch")
 
         logger.info(f"Uploaded batch file with ID: {batch_input_file.id}")
 
@@ -178,7 +196,9 @@ You ONLY can answer YES/NO"""
             try:
                 # Check if there are in-progress batches
                 if not self.check_batch_capacity():
-                    logger.warning(f"Token limit may be reached. Waiting {retry_delay}s before retry {attempt + 1}/{max_retries}...")
+                    logger.warning(
+                        f"Token limit may be reached. Waiting {retry_delay}s before retry {attempt + 1}/{max_retries}..."
+                    )
                     time.sleep(retry_delay)
                     continue
 
@@ -186,7 +206,7 @@ You ONLY can answer YES/NO"""
                 batch = self.client.batches.create(
                     input_file_id=batch_input_file.id,
                     endpoint="/v1/chat/completions",
-                    completion_window="24h"
+                    completion_window="24h",
                 )
 
                 logger.info(f"Created batch with ID: {batch.id}")
@@ -194,14 +214,21 @@ You ONLY can answer YES/NO"""
 
             except Exception as e:
                 error_str = str(e)
-                if "token_limit_exceeded" in error_str or "enqueued token limit" in error_str.lower():
-                    logger.warning(f"Token limit exceeded. Attempt {attempt + 1}/{max_retries}. Waiting {retry_delay}s...")
+                if (
+                    "token_limit_exceeded" in error_str
+                    or "enqueued token limit" in error_str.lower()
+                ):
+                    logger.warning(
+                        f"Token limit exceeded. Attempt {attempt + 1}/{max_retries}. Waiting {retry_delay}s..."
+                    )
                     time.sleep(retry_delay)
                 else:
                     logger.error(f"Error creating batch: {e}")
                     raise
 
-        raise Exception(f"Failed to create batch after {max_retries} retries due to token limit")
+        raise Exception(
+            f"Failed to create batch after {max_retries} retries due to token limit"
+        )
 
     def wait_for_batch_completion(self, batch_id: str, poll_interval: int = 60) -> Dict:
         """
@@ -228,7 +255,7 @@ You ONLY can answer YES/NO"""
                 return batch
             elif batch.status in ["failed", "expired", "cancelled"]:
                 logger.error(f"Batch {batch_id} ended with status: {batch.status}")
-                if hasattr(batch, 'errors'):
+                if hasattr(batch, "errors"):
                     logger.error(f"Batch errors: {batch.errors}")
                 raise Exception(f"Batch failed with status: {batch.status}")
 
@@ -246,7 +273,9 @@ You ONLY can answer YES/NO"""
         """
         # Check if output_file_id exists
         if not batch.output_file_id:
-            error_msg = f"Batch {batch.id} has no output_file_id. Status: {batch.status}"
+            error_msg = (
+                f"Batch {batch.id} has no output_file_id. Status: {batch.status}"
+            )
             logger.error(error_msg)
             logger.error(f"Batch request counts: {batch.request_counts}")
 
@@ -255,7 +284,13 @@ You ONLY can answer YES/NO"""
                 logger.error(f"Downloading error file: {batch.error_file_id}")
                 try:
                     error_file_response = self.client.files.content(batch.error_file_id)
-                    error_file_path = Path(__file__).parent / "data" / "evaluation" / "batch_results" / f"batch_errors_{batch.id}.jsonl"
+                    error_file_path = (
+                        Path(__file__).parent
+                        / "data"
+                        / "evaluation"
+                        / "batch_results"
+                        / f"batch_errors_{batch.id}.jsonl"
+                    )
                     error_file_path.parent.mkdir(parents=True, exist_ok=True)
 
                     with open(error_file_path, "w") as f:
@@ -268,12 +303,14 @@ You ONLY can answer YES/NO"""
                         for idx, line in enumerate(f):
                             if line.strip():
                                 error_data = json.loads(line)
-                                logger.error(f"Error {idx + 1}: {json.dumps(error_data, indent=2)}")
+                                logger.error(
+                                    f"Error {idx + 1}: {json.dumps(error_data, indent=2)}"
+                                )
 
                 except Exception as e:
                     logger.error(f"Failed to download error file: {e}")
 
-            if hasattr(batch, 'errors') and batch.errors:
+            if hasattr(batch, "errors") and batch.errors:
                 logger.error(f"Batch errors: {batch.errors}")
 
             raise Exception(error_msg)
@@ -314,37 +351,45 @@ You ONLY can answer YES/NO"""
 
                     if logprobs_data and logprobs_data.get("content"):
                         for token_info in logprobs_data["content"]:
-                            token_logprobs.append({
-                                "token": token_info["token"],
-                                "logprob": token_info["logprob"],
-                                "top_logprobs": [
-                                    {"token": top["token"], "logprob": top["logprob"]}
-                                    for top in token_info.get("top_logprobs", [])
-                                ]
-                            })
+                            token_logprobs.append(
+                                {
+                                    "token": token_info["token"],
+                                    "logprob": token_info["logprob"],
+                                    "top_logprobs": [
+                                        {
+                                            "token": top["token"],
+                                            "logprob": top["logprob"],
+                                        }
+                                        for top in token_info.get("top_logprobs", [])
+                                    ],
+                                }
+                            )
 
-                    results.append({
-                        "custom_id": custom_id,
-                        "evaluation": evaluation,
-                        "logprobs": token_logprobs,
-                        "finish_reason": choice["finish_reason"]
-                    })
+                    results.append(
+                        {
+                            "custom_id": custom_id,
+                            "evaluation": evaluation,
+                            "logprobs": token_logprobs,
+                            "finish_reason": choice["finish_reason"],
+                        }
+                    )
                 else:
-                    logger.error(f"Request {custom_id} failed with status: {response['status_code']}")
-                    results.append({
-                        "custom_id": custom_id,
-                        "evaluation": "PROBLEM",
-                        "logprobs": [],
-                        "error": response.get("error", "Unknown error")
-                    })
+                    logger.error(
+                        f"Request {custom_id} failed with status: {response['status_code']}"
+                    )
+                    results.append(
+                        {
+                            "custom_id": custom_id,
+                            "evaluation": "PROBLEM",
+                            "logprobs": [],
+                            "error": response.get("error", "Unknown error"),
+                        }
+                    )
 
         return results
 
     def evaluate_with_batch(
-        self,
-        models_to_evaluate: List[str],
-        json_data_path: str,
-        tools: bool = False
+        self, models_to_evaluate: List[str], json_data_path: str, tools: bool = False
     ) -> None:
         """
         Evaluate models using the Batch API.
@@ -367,46 +412,56 @@ You ONLY can answer YES/NO"""
                 llm = models[model_name](tools=tools)
 
                 for idx, item in enumerate(dataset.dataset_items):
-                    logger.info(f"Generating answer {idx + 1}/{len(dataset.dataset_items)} with {model_name}")
+                    logger.info(
+                        f"Generating answer {idx + 1}/{len(dataset.dataset_items)} with {model_name}"
+                    )
 
                     try:
                         # Generate sub-questions
                         if not isinstance(llm.llm, ChatOllama):
                             time.sleep(2.5)
-                        subquestions = llm.get_subquestions(item['question'])
+                        subquestions = llm.get_subquestions(item["question"])
 
                         # Answer sub-questions
                         answers = []
                         for subq in subquestions:
                             if not isinstance(llm.llm, ChatOllama):
                                 time.sleep(2.5)
-                            answer = llm.answer_subquestion(subq, item['context'])
+                            answer = llm.answer_subquestion(subq, item["context"])
                             answers.append(answer)
 
                         # Get final answer
                         if not isinstance(llm.llm, ChatOllama):
                             time.sleep(2.5)
-                        final_answer = llm.get_final_answer(item['question'], subquestions, answers)
+                        final_answer = llm.get_final_answer(
+                            item["question"], subquestions, answers
+                        )
 
-                        llm_answers.append({
-                            "question_id": idx,
-                            "question": item['question'],
-                            "subquestions": subquestions,
-                            "sub_answers": answers,
-                            "final_answer": final_answer
-                        })
+                        llm_answers.append(
+                            {
+                                "question_id": idx,
+                                "question": item["question"],
+                                "subquestions": subquestions,
+                                "sub_answers": answers,
+                                "final_answer": final_answer,
+                            }
+                        )
 
                     except Exception as e:
                         logger.error(f"Error generating answer for question {idx}: {e}")
-                        llm_answers.append({
-                            "question_id": idx,
-                            "question": item['question'],
-                            "final_answer": "ERROR",
-                            "error": str(e)
-                        })
+                        llm_answers.append(
+                            {
+                                "question_id": idx,
+                                "question": item["question"],
+                                "final_answer": "ERROR",
+                                "error": str(e),
+                            }
+                        )
 
                 # Create batch files (may split into multiple if too large)
-                batch_file_paths = self.create_batch_files(dataset, model_name, llm_answers)
+                batch_file_paths = self.create_batch_files(
+                    dataset, model_name, llm_answers
+                )
 
                 # Submit and process each batch
                 all_batch_results = []
@@ -427,13 +482,15 @@ You ONLY can answer YES/NO"""
                     # Extract question ID from custom_id (format: modelname_qX)
                     question_id = int(result["custom_id"].split("_q")[1])
 
-                    all_results.append({
-                        "model": model_name,
-                        "question_id": question_id,
-                        "question": dataset.dataset_items[question_id]["question"],
-                        "answer_eval": result["evaluation"],
-                        "logprobs": result["logprobs"]
-                    })
+                    all_results.append(
+                        {
+                            "model": model_name,
+                            "question_id": question_id,
+                            "question": dataset.dataset_items[question_id]["question"],
+                            "answer_eval": result["evaluation"],
+                            "logprobs": result["logprobs"],
+                        }
+                    )
 
                     logger.info(
                         f"Model: {model_name}, Question ID: {question_id}, "
@@ -453,10 +510,7 @@ You ONLY can answer YES/NO"""
                 raise
 
     def _save_detailed_results(
-        self,
-        model_name: str,
-        results: List[Dict],
-        tools: bool = False
+        self, model_name: str, results: List[Dict], tools: bool = False
     ) -> None:
         """
         Save detailed results including logprobs to a JSON file.
@@ -466,7 +520,11 @@ You ONLY can answer YES/NO"""
             results (List[Dict]): List of evaluation results
             tools (bool): Whether tools were used
         """
-        dir_path = f"medicalexplainer/data/evaluation/{model_name}_tools/" if tools else f"medicalexplainer/data/evaluation/{model_name}/"
+        dir_path = (
+            f"medicalexplainer/data/evaluation/{model_name}_tools/"
+            if tools
+            else f"medicalexplainer/data/evaluation/{model_name}/"
+        )
         os.makedirs(dir_path, exist_ok=True)
 
         results_path = Path(dir_path) / "gpt_batch_evaluation_results.json"

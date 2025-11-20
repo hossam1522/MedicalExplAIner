@@ -1,17 +1,20 @@
-import os
 import logging
+import os
 import warnings
 from pathlib import Path
+
 from dotenv import load_dotenv
-from medicalexplainer.logger import configure_logger
 from langchain.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import BaseMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
-from langchain_core.output_parsers import StrOutputParser
+
+from medicalexplainer.logger import configure_logger
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-configure_logger(name="llm", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
+configure_logger(
+    name="llm", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log"
+)
 logger = logging.getLogger("llm")
 
 
@@ -65,9 +68,11 @@ class LLM:
         messages = {"question": question}
 
         sub_questions = self.call_llm(prompt_decomposition.format_messages(**messages))
-        sub_questions = [q.strip() for q in sub_questions.split('\n') if q.strip()]
+        sub_questions = [q.strip() for q in sub_questions.split("\n") if q.strip()]
 
-        logger.debug(f"Model: {self.model}, Question: {question}, Sub-questions generated: {sub_questions}")
+        logger.debug(
+            f"Model: {self.model}, Question: {question}, Sub-questions generated: {sub_questions}"
+        )
         return sub_questions
 
     def answer_subquestion(self, question: str, context: str) -> str:
@@ -135,11 +140,16 @@ class LLM:
         Approximately 10-15 words."""
 
         prompt = ChatPromptTemplate.from_template(template)
-        messages = {"context": self.format_qa_pairs(subquestions, answers), "question": question}
+        messages = {
+            "context": self.format_qa_pairs(subquestions, answers),
+            "question": question,
+        }
 
         final_answer = self.call_llm(prompt.format_messages(**messages))
 
-        logger.debug(f"Model: {self.model}, Question: {question}, Final answer: {final_answer}")
+        logger.debug(
+            f"Model: {self.model}, Question: {question}, Final answer: {final_answer}"
+        )
         return final_answer
 
 
@@ -147,6 +157,7 @@ class LLM_GEMINI(LLM):
     """
     Class for Google Gemini LLM
     """
+
     def __init__(self, tools: bool = False):
         """
         Initialize the Gemini LLM
@@ -170,10 +181,12 @@ class LLM_GEMINI(LLM):
         self.llm = llm
         logger.debug("Using Gemini 2.5 Flash Lite LLM")
 
+
 class LLM_QWEN_2_5_7B(LLM):
     """
     Class for Qwen2.5 7B LLM
     """
+
     def __init__(self, tools: bool = False):
         """
         Initialize the Qwen2.5 7B LLM
@@ -197,10 +210,12 @@ class LLM_QWEN_2_5_7B(LLM):
         self.llm = llm
         logger.debug("Using Qwen2.5 7B LLM")
 
+
 class LLM_QWEN_2_5_14B(LLM):
     """
     Class for Qwen2.5 14B LLM
     """
+
     def __init__(self, tools: bool = False):
         """
         Initialize the Qwen2.5 14B LLM
@@ -224,10 +239,12 @@ class LLM_QWEN_2_5_14B(LLM):
         self.llm = llm
         logger.debug("Using Qwen2.5 14B LLM")
 
+
 class LLM_GEMMA_3(LLM):
     """
     Class for Google Gemma 3 LLM
     """
+
     def __init__(self, tools: bool = False):
         """
         Initialize the Gemma 3 LLM
@@ -253,10 +270,12 @@ class LLM_GEMMA_3(LLM):
         self.llm = llm
         logger.debug("Using Gemma 3 LLM")
 
+
 class LLM_LLAMA3_1_8B(LLM):
     """
     Class for Llama3.1 8B LLM
     """
+
     def __init__(self, tools: bool = False):
         """
         Initialize the Llama3.1 8B LLM
@@ -280,10 +299,12 @@ class LLM_LLAMA3_1_8B(LLM):
         self.llm = llm
         logger.debug("Using Llama3.1 8B LLM")
 
+
 class LLM_PHI4(LLM):
     """
     Class for Phi4 14B LLM
     """
+
     def __init__(self, tools: bool = False):
         """
         Initialize the Phi4 14B LLM
@@ -306,6 +327,7 @@ class LLM_PHI4(LLM):
 
         self.llm = llm
         logger.debug("Using Phi4 14B LLM")
+
 
 """
 This dictionary maps model names to their respective LLM classes and

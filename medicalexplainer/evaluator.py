@@ -1,17 +1,22 @@
+import logging
 import os
 import time
-import logging
 from pathlib import Path
+
 import plotly.express as px
 import plotly.graph_objects as go
+from langchain.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_ollama import ChatOllama
+
 from medicalexplainer.dataset import Dataset
 from medicalexplainer.llm import models
 from medicalexplainer.logger import configure_logger
-from langchain_core.output_parsers import StrOutputParser
-from langchain.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
 
-configure_logger(name="evaluator", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
+configure_logger(
+    name="evaluator",
+    filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log",
+)
 logger = logging.getLogger("evaluator")
 
 
@@ -19,7 +24,10 @@ class Evaluator:
     """
     Class for evaluating the LLM
     """
-    def evaluate_answer(self, question: str, answer_llm: str, expected_answer: str, context: str) -> str:
+
+    def evaluate_answer(
+        self, question: str, answer_llm: str, expected_answer: str, context: str
+    ) -> str:
         """
         Evaluate the answers obtained from the LLM
 
@@ -44,22 +52,24 @@ class Evaluator:
         prompt = ChatPromptTemplate.from_template(template)
         llm = models["gemma-3-27b"]()
 
-        chain = (
-            prompt
-            | llm.llm
-            | StrOutputParser()
-        )
+        chain = prompt | llm.llm | StrOutputParser()
 
-        answer = chain.invoke({
-            "context": context,
-            "question": question,
-            "answer_LLM": answer_llm,
-            "answer": expected_answer
-        })
-        logger.debug(f"Question: {question}, Answer LLM: {answer_llm}, Expected Answer: {expected_answer}, Comparison: {answer}")
+        answer = chain.invoke(
+            {
+                "context": context,
+                "question": question,
+                "answer_LLM": answer_llm,
+                "answer": expected_answer,
+            }
+        )
+        logger.debug(
+            f"Question: {question}, Answer LLM: {answer_llm}, Expected Answer: {expected_answer}, Comparison: {answer}"
+        )
         return answer
 
-    def evaluate(self, models_to_evaluate: list, json_data_path: str, tools: bool = False) -> None:
+    def evaluate(
+        self, models_to_evaluate: list, json_data_path: str, tools: bool = False
+    ) -> None:
         """
         Evaluates the models on medical questions from JSON dataset.
 
@@ -75,17 +85,23 @@ class Evaluator:
                 logger.debug(f"Loading dataset from: {json_data_path}")
                 dataset = Dataset(json_data_path)
 
-                logger.debug(f"Processing {len(dataset.dataset_items)} items with model: {model}")
+                logger.debug(
+                    f"Processing {len(dataset.dataset_items)} items with model: {model}"
+                )
 
                 for idx, item in enumerate(dataset.dataset_items):
-                    context = item['context']
-                    question = item['question']
-                    expected_answer = item['answer']
+                    context = item["context"]
+                    question = item["question"]
+                    expected_answer = item["answer"]
 
-                    logger.debug(f"Processing question {idx + 1}/{len(dataset.dataset_items)}: {question[:50]}... with model: {model}")
+                    logger.debug(
+                        f"Processing question {idx + 1}/{len(dataset.dataset_items)}: {question[:50]}... with model: {model}"
+                    )
 
                     for attempt in range(10):
-                        logger.debug(f"Attempting to process question {idx + 1}, attempt: {attempt + 1}")
+                        logger.debug(
+                            f"Attempting to process question {idx + 1}, attempt: {attempt + 1}"
+                        )
                         try:
                             # Initialize LLM for the current model
                             llm = models[f"{model}"](tools=tools)
@@ -94,7 +110,9 @@ class Evaluator:
                             if not isinstance(llm.llm, ChatOllama):
                                 time.sleep(2.5)
                             subquestions = llm.get_subquestions(question)
-                            logger.debug(f"Generated {len(subquestions)} subquestions for question {idx + 1}")
+                            logger.debug(
+                                f"Generated {len(subquestions)} subquestions for question {idx + 1}"
+                            )
 
                             # Step 2: Answer each sub-question with context
                             answers = []
@@ -107,13 +125,17 @@ class Evaluator:
                             # Step 3: Get final synthesized answer
                             if not isinstance(llm.llm, ChatOllama):
                                 time.sleep(2.5)
-                            final_answer = llm.get_final_answer(question, subquestions, answers)
+                            final_answer = llm.get_final_answer(
+                                question, subquestions, answers
+                            )
 
                             # Evaluate the answer
                             try:
                                 if not isinstance(llm.llm, ChatOllama):
                                     time.sleep(2)
-                                answers_eval = self.evaluate_answer(question, final_answer, expected_answer, context)
+                                answers_eval = self.evaluate_answer(
+                                    question, final_answer, expected_answer, context
+                                )
                             except Exception as e:
                                 logger.error(f"Error evaluating answer: {e}")
                                 answers_eval = "PROBLEM"
@@ -126,17 +148,23 @@ class Evaluator:
                             answers_eval = "PROBLEM"
                             time.sleep(10)
 
-                    all_results.append({
-                        "model": model,
-                        "question_id": idx,
-                        "question": question,
-                        "answer_eval": answers_eval
-                    })
+                    all_results.append(
+                        {
+                            "model": model,
+                            "question_id": idx,
+                            "question": question,
+                            "answer_eval": answers_eval,
+                        }
+                    )
 
                     if tools:
-                        logger.info(f"Model: {model}_tools, Question ID: {idx}, Answer Eval: {answers_eval}")
+                        logger.info(
+                            f"Model: {model}_tools, Question ID: {idx}, Answer Eval: {answers_eval}"
+                        )
                     else:
-                        logger.info(f"Model: {model}, Question ID: {idx}, Answer Eval: {answers_eval}")
+                        logger.info(
+                            f"Model: {model}, Question ID: {idx}, Answer Eval: {answers_eval}"
+                        )
 
             except Exception as e:
                 logger.error(f"Error processing dataset with model {model}: {e}")
@@ -153,14 +181,16 @@ class Evaluator:
         """
         from collections import defaultdict
 
-        model_question_data = defaultdict(lambda: defaultdict(lambda: {'YES': 0, 'NO': 0}))
+        model_question_data = defaultdict(
+            lambda: defaultdict(lambda: {"YES": 0, "NO": 0})
+        )
 
         for result in results:
             model = result["model"]
             question_id = result["question_id"]
             eval = result["answer_eval"]
 
-            if eval in ['YES', 'NO']:
+            if eval in ["YES", "NO"]:
                 model_question_data[model][question_id][eval] += 1
 
         for model, questions in model_question_data.items():
@@ -171,14 +201,26 @@ class Evaluator:
             q_labels = []
 
             for q_id in sorted_question_ids:
-                yes_values.append(questions[q_id]['YES'])
-                no_values.append(questions[q_id]['NO'])
+                yes_values.append(questions[q_id]["YES"])
+                no_values.append(questions[q_id]["NO"])
                 q_labels.append(f"Q{q_id}")
 
-            fig = go.Figure(data=[
-                go.Bar(name='Correct (YES)', x=q_labels, y=yes_values, marker_color='#4CAF50'),
-                go.Bar(name='Incorrect (NO)', x=q_labels, y=no_values, marker_color='#F44336')
-            ])
+            fig = go.Figure(
+                data=[
+                    go.Bar(
+                        name="Correct (YES)",
+                        x=q_labels,
+                        y=yes_values,
+                        marker_color="#4CAF50",
+                    ),
+                    go.Bar(
+                        name="Incorrect (NO)",
+                        x=q_labels,
+                        y=no_values,
+                        marker_color="#F44336",
+                    ),
+                ]
+            )
 
             if tools:
                 title = f"Correct and incorrect answers by question: {model} with tools"
@@ -186,14 +228,14 @@ class Evaluator:
                 title = f"Correct and incorrect answers by question: {model}"
 
             fig.update_layout(
-                barmode='group',
+                barmode="group",
                 title=title,
                 xaxis_title="Questions",
                 yaxis_title="Count",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02),
                 width=1200,
                 height=600,
-                margin=dict(t=60)
+                margin=dict(t=60),
             )
 
             dir_path = ""
@@ -205,10 +247,14 @@ class Evaluator:
 
             with open(f"{dir_path}answers.txt", "w") as f:
                 f.write(f"Model: {model}\n")
-                f.write(f"Correct and incorrect answers:\n")
+                f.write("Correct and incorrect answers:\n")
                 for q_id in sorted_question_ids:
-                    f.write(f"Question {q_id}: Correct: {questions[q_id]['YES']}, Incorrect: {questions[q_id]['NO']}\n")
-                    logger.info(f"Model: {model}, Question {q_id}, Correct: {questions[q_id]['YES']}, Incorrect: {questions[q_id]['NO']}")
+                    f.write(
+                        f"Question {q_id}: Correct: {questions[q_id]['YES']}, Incorrect: {questions[q_id]['NO']}\n"
+                    )
+                    logger.info(
+                        f"Model: {model}, Question {q_id}, Correct: {questions[q_id]['YES']}, Incorrect: {questions[q_id]['NO']}"
+                    )
 
             fig.write_image(f"{dir_path}grouped_bar_answers.png")
 
@@ -219,18 +265,20 @@ class Evaluator:
         Args:
             results (list): List of evaluation results.
         """
-        from collections import defaultdict, OrderedDict
+        from collections import OrderedDict, defaultdict
 
         model_data = defaultdict(list)
         for result in results:
             model_data[result["model"]].append(result["answer_eval"])
 
         for model, evaluations in model_data.items():
-            counts = OrderedDict([
-                ("Correct (YES)", 0),
-                ("Incorrect (NO)", 0),
-                ("Problematic (PROBLEM)", 0)
-            ])
+            counts = OrderedDict(
+                [
+                    ("Correct (YES)", 0),
+                    ("Incorrect (NO)", 0),
+                    ("Problematic (PROBLEM)", 0),
+                ]
+            )
 
             for eval in evaluations:
                 if eval == "YES":
@@ -245,7 +293,7 @@ class Evaluator:
                 continue
 
             labels = list(counts.keys())
-            values = [round((count/total)*100, 2) for count in counts.values()]
+            values = [round((count / total) * 100, 2) for count in counts.values()]
 
             if tools:
                 title = f"Correct and incorrect answers: {model} with tools"
@@ -256,7 +304,7 @@ class Evaluator:
                 names=labels,
                 values=values,
                 title=title,
-                color_discrete_sequence=px.colors.qualitative.Pastel
+                color_discrete_sequence=px.colors.qualitative.Pastel,
             )
 
             dir_path = ""
@@ -268,7 +316,7 @@ class Evaluator:
 
             with open(f"{dir_path}answers_pie_chart.txt", "w") as f:
                 f.write(f"Model: {model}\n")
-                f.write(f"Correct and incorrect answers:\n")
+                f.write("Correct and incorrect answers:\n")
                 for label, value in zip(labels, values):
                     f.write(f"{label}: {value}%\n")
                     logger.info(f"Model: {model}, {label}: {value}%")
