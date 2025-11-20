@@ -88,4 +88,4 @@ class Dataset:
                         dataset_items.append(item)
 
         logger.debug(f"Prepared {len(dataset_items)} dataset items")
-        return dataset_items[0:2]
+        return dataset_items
