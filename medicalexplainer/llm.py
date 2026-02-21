@@ -242,6 +242,35 @@ class LLM_GPT_OSS(LLM):
         logger.debug("Using gpt-oss 20B LLM")
 
 
+class LLM_OPENBIOLLM(LLM):
+    """
+    Class for OpenBioLLM 8B LLM
+    """
+
+    def __init__(self, use_subtasks: bool = False):
+        """
+        Initialize the OpenBioLLM 8B LLM
+
+        Args:
+            use_subtasks (bool): Whether to use subtasks division or not
+        """
+        super().__init__(use_subtasks)
+
+        self.model = "openbiollm"
+        self.use_subtasks = use_subtasks
+
+        llm = ChatOllama(
+            model=self.model,
+            num_ctx=8096,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=20,
+        )
+
+        self.llm = llm
+        logger.debug("Using OpenBioLLM 8B LLM")
+
+
 """
 This dictionary maps model names to their respective LLM classes
 """
@@ -249,4 +278,5 @@ models = {
     "gemini-3.1-pro-preview": LLM_GEMINI,
     "gemma-3-27b": LLM_GEMMA_3,
     "gpt-oss": LLM_GPT_OSS,
+    "openbiollm": LLM_OPENBIOLLM,
 }
