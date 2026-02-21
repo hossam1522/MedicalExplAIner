@@ -168,7 +168,7 @@ class LLM_GEMINI(LLM):
         super().__init__(use_subtasks)
         os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
 
-        self.model = "gemini-2.5-flash-lite"
+        self.model = "gemini-3.1-pro-preview"
         self.use_subtasks = use_subtasks
 
         llm = ChatGoogleGenerativeAI(
@@ -180,64 +180,6 @@ class LLM_GEMINI(LLM):
 
         self.llm = llm
         logger.debug("Using Gemini 2.5 Flash Lite LLM")
-
-
-class LLM_QWEN_2_5_7B(LLM):
-    """
-    Class for Qwen2.5 7B LLM
-    """
-
-    def __init__(self, use_subtasks: bool = False):
-        """
-        Initialize the Qwen2.5 7B LLM
-
-        Args:
-            use_subtasks (bool): Whether to use subtasks division or not
-        """
-        super().__init__(use_subtasks)
-
-        self.model = "qwen2.5:7b-instruct-fp16"
-        self.use_subtasks = use_subtasks
-
-        llm = ChatOllama(
-            model=self.model,
-            num_ctx=32768,
-            temperature=0.7,
-            top_p=0.8,
-            top_k=20,
-        )
-
-        self.llm = llm
-        logger.debug("Using Qwen2.5 7B LLM")
-
-
-class LLM_QWEN_2_5_14B(LLM):
-    """
-    Class for Qwen2.5 14B LLM
-    """
-
-    def __init__(self, use_subtasks: bool = False):
-        """
-        Initialize the Qwen2.5 14B LLM
-
-        Args:
-            use_subtasks (bool): Whether to use subtasks division or not
-        """
-        super().__init__(use_subtasks)
-
-        self.model = "qwen2.5:14b-instruct-fp16"
-        self.use_subtasks = use_subtasks
-
-        llm = ChatOllama(
-            model=self.model,
-            num_ctx=32768,
-            temperature=0.7,
-            top_p=0.8,
-            top_k=20,
-        )
-
-        self.llm = llm
-        logger.debug("Using Qwen2.5 14B LLM")
 
 
 class LLM_GEMMA_3(LLM):
@@ -271,21 +213,21 @@ class LLM_GEMMA_3(LLM):
         logger.debug("Using Gemma 3 LLM")
 
 
-class LLM_LLAMA3_1_8B(LLM):
+class LLM_GPT_OSS(LLM):
     """
-    Class for Llama3.1 8B LLM
+    Class for gpt-oss 20B LLM
     """
 
     def __init__(self, use_subtasks: bool = False):
         """
-        Initialize the Llama3.1 8B LLM
+        Initialize the gpt-oss 20B LLM
 
         Args:
             use_subtasks (bool): Whether to use subtasks division or not
         """
         super().__init__(use_subtasks)
 
-        self.model = "llama3.1:8b-instruct-fp16"
+        self.model = "gpt-oss"
         self.use_subtasks = use_subtasks
 
         llm = ChatOllama(
@@ -297,47 +239,14 @@ class LLM_LLAMA3_1_8B(LLM):
         )
 
         self.llm = llm
-        logger.debug("Using Llama3.1 8B LLM")
-
-
-class LLM_PHI4(LLM):
-    """
-    Class for Phi4 14B LLM
-    """
-
-    def __init__(self, use_subtasks: bool = False):
-        """
-        Initialize the Phi4 14B LLM
-
-        Args:
-            use_subtasks (bool): Whether to use subtasks division or not
-        """
-        super().__init__(use_subtasks)
-
-        self.model = "phi4:14b-fp16"
-        self.use_subtasks = use_subtasks
-
-        llm = ChatOllama(
-            model=self.model,
-            num_ctx=32768,
-            temperature=0.7,
-            top_p=0.8,
-            top_k=20,
-        )
-
-        self.llm = llm
-        logger.debug("Using Phi4 14B LLM")
+        logger.debug("Using gpt-oss 20B LLM")
 
 
 """
-This dictionary maps model names to their respective LLM classes and
-if windows context size is small or big.
+This dictionary maps model names to their respective LLM classes
 """
 models = {
-    "gemini-2.5-flash-lite": LLM_GEMINI,
-    "qwen2.5-7b": LLM_QWEN_2_5_7B,
-    "qwen2.5-14b": LLM_QWEN_2_5_14B,
+    "gemini-3.1-pro-preview": LLM_GEMINI,
     "gemma-3-27b": LLM_GEMMA_3,
-    "llama3.1-8b": LLM_LLAMA3_1_8B,
-    "phi4-14b": LLM_PHI4,
+    "gpt-oss": LLM_GPT_OSS,
 }

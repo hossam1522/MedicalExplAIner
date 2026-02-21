@@ -3,7 +3,7 @@ import logging
 import sys
 from pathlib import Path
 
-from medicalexplainer.evaluator_gpt_batch import EvaluatorGPTBatch
+from medicalexplainer.evaluator import Evaluator
 from medicalexplainer.logger import configure_logger
 
 configure_logger(
@@ -64,12 +64,12 @@ if __name__ == "__main__":
     if args.limit:
         logger.info(f"Limiting evaluation to {args.limit} questions")
 
-    evaluator = EvaluatorGPTBatch()
-    # evaluator = Evaluator()
+    # evaluator = EvaluatorGPTBatch()
+    evaluator = Evaluator()
 
     try:
-        # evaluator.evaluate(
-        evaluator.evaluate_with_batch(
+        evaluator.evaluate(
+            # evaluator.evaluate_with_batch(
             models_to_evaluate=args.models,
             json_data_path=str(dataset_path),
             use_subtasks=args.subtasks,

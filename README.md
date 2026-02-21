@@ -93,7 +93,7 @@ python -m medicalexplainer --dataset <dataset_path> --models <model1> <model2> .
 |-----------|------|----------|-------------|---------|
 | `--dataset` | string | ✅ Yes | Path to the JSON dataset file | - |
 | `--models` | list | ❌ No | List of models to evaluate | `["gemini-2.0-flash"]` |
-| `--tools` | flag | ❌ No | Enable tool usage | `False` |
+| `--subtasks` | flag | ❌ No | Enable subtasks division | `False` |
 | `--limit` | int | ❌ No | Limit number of questions | `None` |
 
 
@@ -124,13 +124,12 @@ python -m medicalexplainer \
     --limit 10
 ```
 
-### 4. Evaluation with Tools (not recommended for medical context)
+### 4. Evaluation without Subtasks (direct answering)
 
 ```bash
 python -m medicalexplainer \
     --dataset medicalexplainer/data/test.final.json \
-    --models gemini-2.0-flash \
-    --tools
+    --models gemini-2.0-flash
 ```
 
 ## Dataset Format
@@ -207,10 +206,10 @@ To add a new model, edit `medicalexplainer/llm.py`:
 ```python
 # 1. Create a class for the model
 class LLM_YOUR_MODEL(LLM):
-    def __init__(self, tools: bool = False):
-        super().__init__(tools)
+    def __init__(self, use_subtasks: bool = False):
+        super().__init__(use_subtasks)
         self.model = "model-name"
-        self.tools = tools
+        self.use_subtasks = use_subtasks
 
         llm = ChatOllama(  # or ChatGoogleGenerativeAI, etc.
             model=self.model,
@@ -223,7 +222,7 @@ class LLM_YOUR_MODEL(LLM):
 # 2. Add to the models dictionary
 models = {
     # ... existing models ...
-    "your-model": (LLM_YOUR_MODEL, "big"),  # "big" or "small"
+    "your-model": LLM_YOUR_MODEL,
 }
 ```
 
