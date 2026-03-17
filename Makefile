@@ -1,4 +1,4 @@
-.PHONY: help check install test install-uv run dev clean download-data clean-data delete-data
+.PHONY: help check install test install-uv run run-nodiv dev clean download-data clean-data delete-data
 
 help:
 	@echo "Usage: make [target]"
@@ -12,6 +12,7 @@ help:
 	@echo "  clean-data N=<number>	Keep network files with a maximum of <number> packets"
 	@echo "  delete-data   	Delete all network files"
 	@echo "  run MODELS='model1 model2 ...'	Run the program with specified models (space-separated)"
+	@echo "  run-nodiv MODELS='model1 model2 ...'	Run the program without subtasks division"
 	@echo "  dev           	Create a development environment"
 	@echo "  clean         	Remove build artifacts"
 	@echo "  check 	    	Check the code for syntax errors"
@@ -26,6 +27,11 @@ install:
 	uv run pip install .
 
 run:
+	uv run python -m medicalexplainer \
+		--dataset medicalexplainer/data/test.final.json \
+		--models $(MODELS) --subtasks
+
+run-nodiv:
 	uv run python -m medicalexplainer \
 		--dataset medicalexplainer/data/test.final.json \
 		--models $(MODELS)

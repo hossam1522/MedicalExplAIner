@@ -1,32 +1,35 @@
-import os
 import logging
+import os
 import warnings
 from pathlib import Path
+
 from dotenv import load_dotenv
-from medicalexplainer.logger import configure_logger
 from langchain.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import BaseMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
-from langchain_core.output_parsers import StrOutputParser
+
+from medicalexplainer.logger import configure_logger
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-configure_logger(name="llm", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log")
+configure_logger(
+    name="llm", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log"
+)
 logger = logging.getLogger("llm")
 
 
 class LLM:
-    def __init__(self, tools: bool = False):
+    def __init__(self, use_subtasks: bool = False):
         """
         Initialize the LLM object
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
         load_dotenv()
         self.llm = None
         self.model = None
-        self.tools = tools
+        self.use_subtasks = use_subtasks
         self.context = None  # Will be set when answering questions
 
     def call_llm(self, messages: list[BaseMessage]) -> str:
@@ -65,9 +68,11 @@ class LLM:
         messages = {"question": question}
 
         sub_questions = self.call_llm(prompt_decomposition.format_messages(**messages))
-        sub_questions = [q.strip() for q in sub_questions.split('\n') if q.strip()]
+        sub_questions = [q.strip() for q in sub_questions.split("\n") if q.strip()]
 
-        logger.debug(f"Model: {self.model}, Question: {question}, Sub-questions generated: {sub_questions}")
+        logger.debug(
+            f"Model: {self.model}, Question: {question}, Sub-questions generated: {sub_questions}"
+        )
         return sub_questions
 
     def answer_subquestion(self, question: str, context: str) -> str:
@@ -135,11 +140,16 @@ class LLM:
         Approximately 10-15 words."""
 
         prompt = ChatPromptTemplate.from_template(template)
-        messages = {"context": self.format_qa_pairs(subquestions, answers), "question": question}
+        messages = {
+            "context": self.format_qa_pairs(subquestions, answers),
+            "question": question,
+        }
 
         final_answer = self.call_llm(prompt.format_messages(**messages))
 
-        logger.debug(f"Model: {self.model}, Question: {question}, Final answer: {final_answer}")
+        logger.debug(
+            f"Model: {self.model}, Question: {question}, Final answer: {final_answer}"
+        )
         return final_answer
 
 
@@ -147,18 +157,19 @@ class LLM_GEMINI(LLM):
     """
     Class for Google Gemini LLM
     """
-    def __init__(self, tools: bool = False):
+
+    def __init__(self, use_subtasks: bool = False):
         """
         Initialize the Gemini LLM
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
-        super().__init__(tools)
+        super().__init__(use_subtasks)
         os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
 
-        self.model = "gemini-2.0-flash"
-        self.tools = tools
+        self.model = "gemini-3.1-pro-preview"
+        self.use_subtasks = use_subtasks
 
         llm = ChatGoogleGenerativeAI(
             model=self.model,
@@ -168,51 +179,26 @@ class LLM_GEMINI(LLM):
         )
 
         self.llm = llm
-        logger.debug("Using Gemini 2.0 Flash LLM")
+        logger.debug("Using Gemini 2.5 Flash Lite LLM")
 
-class LLM_QWEN_2_5_7B(LLM):
-    """
-    Class for Qwen2.5 7B LLM
-    """
-    def __init__(self, tools: bool = False):
-        """
-        Initialize the Qwen2.5 7B LLM
-
-        Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
-        """
-        super().__init__(tools)
-
-        self.model = "qwen2.5:7b-instruct-fp16"
-        self.tools = tools
-
-        llm = ChatOllama(
-            model=self.model,
-            num_ctx=32768,
-            temperature=0.7,
-            top_p=0.8,
-            top_k=20,
-        )
-
-        self.llm = llm
-        logger.debug("Using Qwen2.5 7B LLM")
 
 class LLM_GEMMA_3(LLM):
     """
     Class for Google Gemma 3 LLM
     """
-    def __init__(self, tools: bool = False):
+
+    def __init__(self, use_subtasks: bool = False):
         """
         Initialize the Gemma 3 LLM
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
-        super().__init__(tools)
+        super().__init__(use_subtasks)
         os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
 
         self.model = "gemma-3-27b-it"
-        self.tools = tools
+        self.use_subtasks = use_subtasks
 
         llm = ChatGoogleGenerativeAI(
             model=self.model,
@@ -226,21 +212,23 @@ class LLM_GEMMA_3(LLM):
         self.llm = llm
         logger.debug("Using Gemma 3 LLM")
 
-class LLM_LLAMA3_1_8B(LLM):
+
+class LLM_GPT_OSS(LLM):
     """
-    Class for Llama3.1 8B LLM
+    Class for gpt-oss 20B LLM
     """
-    def __init__(self, tools: bool = False):
+
+    def __init__(self, use_subtasks: bool = False):
         """
-        Initialize the Llama3.1 8B LLM
+        Initialize the gpt-oss 20B LLM
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
-        super().__init__(tools)
+        super().__init__(use_subtasks)
 
-        self.model = "llama3.1:8b-instruct-fp16"
-        self.tools = tools
+        self.model = "gpt-oss"
+        self.use_subtasks = use_subtasks
 
         llm = ChatOllama(
             model=self.model,
@@ -251,43 +239,44 @@ class LLM_LLAMA3_1_8B(LLM):
         )
 
         self.llm = llm
-        logger.debug("Using Llama3.1 8B LLM")
+        logger.debug("Using gpt-oss 20B LLM")
 
-class LLM_PHI4(LLM):
+
+class LLM_OPENBIOLLM(LLM):
     """
-    Class for Phi4 14B LLM
+    Class for OpenBioLLM 8B LLM
     """
-    def __init__(self, tools: bool = False):
+
+    def __init__(self, use_subtasks: bool = False):
         """
-        Initialize the Phi4 14B LLM
+        Initialize the OpenBioLLM 8B LLM
 
         Args:
-            tools (bool): Whether to use tools or not (not used in medical context)
+            use_subtasks (bool): Whether to use subtasks division or not
         """
-        super().__init__(tools)
+        super().__init__(use_subtasks)
 
-        self.model = "phi4:14b-fp16"
-        self.tools = tools
+        self.model = "openbiollm"
+        self.use_subtasks = use_subtasks
 
         llm = ChatOllama(
             model=self.model,
-            num_ctx=32768,
+            num_ctx=8096,
             temperature=0.7,
             top_p=0.8,
             top_k=20,
         )
 
         self.llm = llm
-        logger.debug("Using Phi4 14B LLM")
+        logger.debug("Using OpenBioLLM 8B LLM")
+
 
 """
-This dictionary maps model names to their respective LLM classes and
-if windows context size is small or big.
+This dictionary maps model names to their respective LLM classes
 """
 models = {
-    "gemini-2.0-flash": LLM_GEMINI,
-    "qwen2.5-7b": LLM_QWEN_2_5_7B,
+    "gemini-3.1-pro-preview": LLM_GEMINI,
     "gemma-3-27b": LLM_GEMMA_3,
-    "llama3.1-8b": LLM_LLAMA3_1_8B,
-    "phi4-14b": LLM_PHI4,
+    "gpt-oss": LLM_GPT_OSS,
+    "openbiollm": LLM_OPENBIOLLM,
 }
