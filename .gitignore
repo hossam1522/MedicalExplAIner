@@ -1,5 +1,8 @@
 results/
 
+# Dataset and evaluation output — do not commit
+data/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -14,8 +17,6 @@ build/
 develop-eggs/
 dist/
 downloads/
-data/
-!data/questions.yaml
 eggs/
 .eggs/
 lib/
