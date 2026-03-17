@@ -1,4 +1,4 @@
-.PHONY: help check install test install-uv run run-nodiv dev clean
+.PHONY: help check install test install-uv run run-nodiv dev clean download-demo-data
 
 help:
 	@echo "Usage: make [target]"
@@ -8,8 +8,9 @@ help:
 	@echo "  install-uv                              Install the uv package manager (required)"
 	@echo "  install                                 Install the package and its dependencies"
 	@echo "  test                                    Run the test suite"
-	@echo "  run MODELS='model1 model2 ...'          Run the program with subtasks (space-separated models)"
-	@echo "  run-nodiv MODELS='model1 model2 ...'    Run the program without subtasks division"
+	@echo "  download-demo-data                      Download MIMIC-IV-ED demo CSV files"
+	@echo "  run MODELS='model1 model2 ...'          Run evaluation with subtasks"
+	@echo "  run-nodiv MODELS='model1 model2 ...'    Run evaluation without subtasks"
 	@echo "  dev                                     Create a development virtual environment"
 	@echo "  clean                                   Remove build artifacts and caches"
 	@echo "  check                                   Check source files for syntax errors"
@@ -26,14 +27,24 @@ install:
 test:
 	uv run pytest tests/
 
+download-demo-data:
+	@echo "Downloading MIMIC-IV-ED demo data..."
+	@mkdir -p data
+	wget -r -np -nd -A "*.csv.gz" -P data/ \
+		https://physionet.org/files/mimic-iv-ed-demo/2.2/ed/
+	@echo "Decompressing..."
+	gunzip -f data/*.csv.gz
+	@echo "Removing unnecessary files (medrecon, pyxis)..."
+	rm -f data/medrecon.csv data/pyxis.csv
+	@echo "Done. CSV files in data/:"
+	@ls data/*.csv
+
 run:
 	uv run python -m medicalexplainer \
-		--dataset data/test.final.json \
 		--models $(MODELS) --subtasks
 
 run-nodiv:
 	uv run python -m medicalexplainer \
-		--dataset data/test.final.json \
 		--models $(MODELS)
 
 dev:

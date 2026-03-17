@@ -1,36 +1,52 @@
-# MedicalExplAIner - Usage Guide
+# MedicalExplAIner
+
+Predict ESI triage acuity levels (1-5) using Large Language Models on [MIMIC-IV-ED](https://physionet.org/content/mimic-iv-ed/2.2/) emergency department data.
 
 ## Overview
 
-MedicalExplAIner is a system that evaluates LLM models on their ability to answer medical questions by decomposing complex queries into more manageable sub-questions.
+MedicalExplAIner feeds patient data from MIMIC-IV-ED (demographics, triage vitals, ED vital signs, and diagnosis codes) to an LLM and asks it to predict the Emergency Severity Index (ESI) triage acuity level on a scale of 1 (most severe) to 5 (least severe). Predictions are compared against the ground-truth `acuity` column from the triage table.
 
-## System Flow
+Key features:
 
+- **Dynamic Ollama model support** -- any Ollama model can be used without code changes; models are auto-pulled if not present locally.
+- **Google API models** -- Gemini and Gemma models are also supported.
+- **Logprobs** -- for Ollama models, log-probabilities for each acuity level (1-5) are collected.
+- **Variable selection** -- choose which patient variables to include in the prompt.
+- **Sub-question decomposition** -- optionally break the prediction into sub-questions before making a final determination.
+- **Structured CSV output** -- results include model name, patient identifiers, prediction, ground truth, logprobs, and sub-question details.
+- **Retry logic with exponential backoff** -- handles transient API/service failures gracefully.
+
+## Data
+
+This project uses the **MIMIC-IV-ED v2.2** dataset. Specifically, these four tables:
+
+| Table | Description |
+|-------|-------------|
+| `edstays.csv` | Patient demographics and ED stay info |
+| `triage.csv` | Triage vitals, chief complaint, and **acuity** (ground truth) |
+| `vitalsign.csv` | Time-series vital signs during the ED stay (aggregated to median) |
+| `diagnosis.csv` | ICD diagnosis codes |
+
+### Demo data (free)
+
+The demo subset is publicly available and can be downloaded automatically:
+
+```bash
+make download-demo-data
 ```
-┌─────────────────────────────────────────────────────────────┐
-│              MedicalExplAIner - Complete Flow               │
-└─────────────────────────────────────────────────────────────┘
 
-1. Load JSON dataset with medical records
-   └─> Format: {context, question, answer}
-
-2. For each question:
-
-   a) Generate sub-questions
-      └─> LLM decomposes the complex question
-
-   b) Answer each sub-question
-      └─> Using the patient's medical context
-
-   c) Synthesize final answer
-      └─> Integrate all partial answers
-
-   d) Evaluate the answer
-      └─> Compare with expected answer
-
-3. Generate result charts
-   └─> Pie charts and bar charts per model
+This runs:
+```bash
+wget -r -np -nd -A "*.csv.gz" -P data/ https://physionet.org/files/mimic-iv-ed-demo/2.2/ed/
+gunzip -f data/*.csv.gz
 ```
+
+### Full dataset (credentialed access)
+
+The complete MIMIC-IV-ED v2.2 dataset (~425,000 ED stays) requires [credentialed access on PhysioNet](https://physionet.org/content/mimic-iv-ed/2.2/). After completing the required training and signing the Data Use Agreement:
+
+1. Download the CSV files from PhysioNet.
+2. Place `edstays.csv`, `triage.csv`, `vitalsign.csv`, and `diagnosis.csv` in the `data/` directory.
 
 ## Installation
 
@@ -50,235 +66,176 @@ MedicalExplAIner is a system that evaluates LLM models on their ability to answe
    make install
    ```
 
-4. **Configure environment variables** (if using API models)
+4. **Configure environment variables** (only if using Google API models)
 
    Create a `.env` file in the project root:
    ```bash
-   # For Google models (Gemini, Gemma)
    GOOGLE_API_KEY=your_api_key_here
    ```
 
-## Basic Usage
+5. **Ensure Ollama is running** (if using Ollama models)
+   ```bash
+   ollama serve
+   ```
+
+## Usage
 
 ### Using Make
 
-The easiest way to run the program is using the Makefile:
-
-**Single model:**
+**Single Ollama model (with sub-questions):**
 ```bash
-make run MODELS=gemini-2.5-flash
+make run MODELS=llama3.1
 ```
 
-**Multiple models:**
+**Multiple models (direct prediction, no sub-questions):**
 ```bash
-make run MODELS='gemini-2.5-flash qwen2.5-7b llama3.1-8b'
+make run-nodiv MODELS='llama3.1 gemma3:4b mistral'
 ```
 
-This command is equivalent to:
-```bash
-uv run python -m medicalexplainer \
-    --dataset medicalexplainer/data/test.final.json \
-    --models gemini-2.5-flash qwen2.5-7b llama3.1-8b
-```
-
-### Main Command (Direct Execution)
+### Direct execution
 
 ```bash
-python -m medicalexplainer --dataset <dataset_path> --models <model1> <model2> ...
+python -m medicalexplainer --models <model1> [model2 ...] [options]
 ```
 
 ### Parameters
 
 | Parameter | Type | Required | Description | Default |
 |-----------|------|----------|-------------|---------|
-| `--dataset` | string | ✅ Yes | Path to the JSON dataset file | - |
-| `--models` | list | ❌ No | List of models to evaluate | `["gemini-2.0-flash"]` |
-| `--subtasks` | flag | ❌ No | Enable subtasks division | `False` |
-| `--limit` | int | ❌ No | Limit number of questions | `None` |
+| `--models` | list | Yes | Model names (Ollama models are auto-pulled) | -- |
+| `--subtasks` | flag | No | Decompose into sub-questions before predicting | Off |
+| `--limit` | int | No | Max number of patient records to evaluate | All |
+| `--variables` | list | No | Subset of variables to include | All |
+| `--data-dir` | string | No | Directory containing CSV files | `data/` |
 
+### Available variables
 
-## Usage Examples
+Variables are grouped by source table:
 
-### 1. Basic Evaluation (single model)
+**edstays:** `gender`, `race`, `arrival_transport`, `disposition`
 
+**triage:** `temperature`, `heartrate`, `resprate`, `o2sat`, `sbp`, `dbp`, `pain`, `chiefcomplaint`
+
+**vitalsign (aggregated):** `vs_temperature`, `vs_heartrate`, `vs_resprate`, `vs_o2sat`, `vs_sbp`, `vs_dbp`, `vs_rhythm`, `vs_pain`
+
+**diagnosis:** `diagnoses`
+
+### Examples
+
+**Evaluate with all variables (default):**
 ```bash
-python -m medicalexplainer \
-    --dataset medicalexplainer/data/test.final.json \
-    --models gemini-2.0-flash
+python -m medicalexplainer --models llama3.1
 ```
 
-### 2. Multiple Model Evaluation
-
+**Evaluate with only triage data:**
 ```bash
 python -m medicalexplainer \
-    --dataset medicalexplainer/data/test.final.json \
-    --models gemini-2.0-flash qwen2.5-7b llama3.1-8b
+    --models llama3.1 \
+    --variables temperature heartrate resprate o2sat sbp dbp pain chiefcomplaint
 ```
 
-### 3. Evaluation with Limit (for quick testing)
-
+**Evaluate with sub-question decomposition, limited to 10 records:**
 ```bash
 python -m medicalexplainer \
-    --dataset medicalexplainer/data/test.final.json \
-    --models gemini-2.0-flash \
+    --models llama3.1 gemma3:4b \
+    --subtasks \
     --limit 10
 ```
 
-### 4. Evaluation without Subtasks (direct answering)
-
+**Use a Google API model:**
 ```bash
-python -m medicalexplainer \
-    --dataset medicalexplainer/data/test.final.json \
-    --models gemini-2.0-flash
-```
-
-## Dataset Format
-
-The dataset must be a JSON file with the following format (SQuAD-like):
-
-## Dataset Format
-
-The dataset must be a JSON file with the following format (SQuAD-like):
-
-```json
-{
-    "data": [
-        {
-            "title": "case_ID",
-            "paragraphs": [
-                {
-                    "context": "Complete patient medical history...",
-                    "qas": [
-                        {
-                            "question": "Does the patient have diabetes?",
-                            "id": "0",
-                            "answers": [
-                                {
-                                    "answer_start": 123,
-                                    "text": "The patient has type 2 diabetes"
-                                }
-                            ]
-                        }
-                    ]
-                }
-            ]
-        }
-    ]
-}
+python -m medicalexplainer --models gemini-2.0-flash
 ```
 
 ## Results
 
-Results are saved in `medicalexplainer/data/evaluation/{model}/`:
+Results are saved as CSV files in the `results/` directory with the naming pattern:
 
-### Generated Files
+```
+results/results_{mode}_{timestamp}.csv
+```
 
-1. **`answers.txt`**: Detailed results per question
-   ```
-   Model: gemini-2.0-flash
-   Correct and incorrect answers:
-   Question 0: Correct: 8, Incorrect: 2
-   Question 1: Correct: 7, Incorrect: 3
-   ...
-   ```
+Where `{mode}` is either `direct` or `subtasks`.
 
-2. **`grouped_bar_answers.png`**: Grouped bar chart
-   - Correct answers (green)
-   - Incorrect answers (red)
-   - Per question
+### CSV columns
 
-3. **`answers_pie_chart.txt`**: Global percentages
-   ```
-   Model: gemini-2.0-flash
-   Correct and incorrect answers:
-   Correct (YES): 75.5%
-   Incorrect (NO): 20.3%
-   Problematic (PROBLEM): 4.2%
-   ```
+| Column | Description |
+|--------|-------------|
+| `model` | Model name used for prediction |
+| `subject_id` | Patient identifier |
+| `stay_id` | ED stay identifier |
+| `ground_truth_acuity` | Actual ESI acuity level (1-5) from triage |
+| `predicted_acuity` | LLM's predicted acuity level |
+| `correct` | Whether prediction matches ground truth |
+| `use_subtasks` | Whether sub-question decomposition was used |
+| `subquestions` | JSON array of sub-questions (if subtasks enabled) |
+| `subanswers` | JSON array of sub-answers (if subtasks enabled) |
+| `logprobs_1` .. `logprobs_5` | Log-probability for each acuity level |
+| `prob_1` .. `prob_5` | Probability (exp of logprob) for each acuity level |
 
-4. **`answers_pie_chart.png`**: Pie chart
-   - Global distribution of answers
+## Adding models
 
-## Adding New Models
+### Ollama models
 
-To add a new model, edit `medicalexplainer/llm.py`:
+No code changes needed. Just pass the model name:
+
+```bash
+python -m medicalexplainer --models any-ollama-model-name
+```
+
+If the model is not already pulled, it will be downloaded automatically.
+
+### Google API models
+
+Google API models are defined in `medicalexplainer/llm.py` in the `API_MODELS` dictionary. To add a new one:
 
 ```python
-# 1. Create a class for the model
-class LLM_YOUR_MODEL(LLM):
-    def __init__(self, use_subtasks: bool = False):
-        super().__init__(use_subtasks)
-        self.model = "model-name"
-        self.use_subtasks = use_subtasks
-
-        llm = ChatOllama(  # or ChatGoogleGenerativeAI, etc.
-            model=self.model,
-            num_ctx=32768,
-        )
-
-        self.llm = llm
-        logger.debug("Using Your Model LLM")
-
-# 2. Add to the models dictionary
-models = {
-    # ... existing models ...
-    "your-model": LLM_YOUR_MODEL,
+API_MODELS["your-model-name"] = {
+    "backend": "google",
+    "model_id": "the-google-model-id",
+    "temperature": 0,
 }
 ```
 
-## Logs
+## Project structure
 
-Logs are saved in `medicalexplainer/logs/medicalexplainer.log`:
-
-- **DEBUG**: Detailed information for each step
-- **INFO**: General progress and results
-- **ERROR**: Errors and exceptions
-
-To view logs in real-time:
-```bash
-tail -f medicalexplainer/logs/medicalexplainer.log
+```
+MedicalExplAIner/
+├── data/                     # MIMIC-IV-ED CSV files (not committed)
+│   ├── edstays.csv
+│   ├── triage.csv
+│   ├── vitalsign.csv
+│   └── diagnosis.csv
+├── results/                  # Evaluation output (not committed)
+├── medicalexplainer/
+│   ├── __init__.py           # Package exports
+│   ├── __main__.py           # CLI entry point
+│   ├── dataset.py            # CSV loading, merging, aggregation
+│   ├── evaluator.py          # Evaluation pipeline, CSV output
+│   ├── llm.py                # LLM wrapper (Ollama + Google API)
+│   ├── logger.py             # Logging configuration
+│   └── paths.py              # Centralised path constants
+├── tests/
+│   ├── test_dataset.py
+│   ├── test_llm.py
+│   └── test_logger.py
+├── Makefile
+├── pyproject.toml
+└── README.md
 ```
 
-## Troubleshooting
+## Running tests
 
-### Error: "Dataset file not found"
-- Verify that the dataset path is correct
-- Use absolute paths if you have issues with relative paths
+```bash
+make test
+```
 
-### Error: "Model not found in models dictionary"
-- Verify that the model name is in the `models` dictionary in `llm.py`
-- Check the spelling of the model name
+## Citation
 
-### Error with Ollama models
-- Make sure Ollama is installed: `ollama --version`
-- Download the model: `ollama pull model-name`
-- Verify that Ollama is running: `ollama list`
+When using MIMIC-IV-ED data, please cite:
 
-### Error with API models (Gemini)
-- Verify that the API key is configured in `.env`
-- Verify that you have available credits
-- Check the API rate limits
-
-### Answers with "PROBLEM"
-- May be API timeout errors
-- May be response parsing issues
-- Check the logs for more details
-
-## Contributing
-
-To contribute to the project:
-
-1. Fork the repository
-2. Create a branch with your feature: `git checkout -b feature/new-feature`
-3. Commit changes: `git commit -am 'Add new feature'`
-4. Push to the branch: `git push origin feature/new-feature`
-5. Create Pull Request
+> Johnson, A., Bulgarelli, L., Pollard, T., Celi, L. A., Mark, R., & Horng, S. (2023). MIMIC-IV-ED (version 2.2). *PhysioNet*. https://doi.org/10.13026/5ntk-km72
 
 ## License
 
-See `LICENSE` file for more details.
-
-## Contact
-
-- GitHub: [@hossam1522](https://github.com/hossam1522)
-- Repository: [MedicalExplAIner](https://github.com/hossam1522/MedicalExplAIner)
+See `LICENSE` file for details.

@@ -4,24 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "medicalexplainer"
-version = "0.1.0"
-description = "Using LLMs to analyze medical questions by decomposing queries in manageable steps."
+version = "0.2.0"
+description = "Predict ESI triage acuity (1-5) using LLMs on MIMIC-IV-ED data."
 authors = [
     { name = "Hossam", email = "hossam@correo.ugr.es" }
 ]
 dependencies = [
     "langchain",
     "langchain_google_genai",
-    "langchain_community",
     "langchain_core",
     "langchain-ollama",
-    "chromadb",
-    "numexpr",
     "pandas",
-    "plotly",
-    "kaleido",
-    "openai",
     "python-dotenv",
+    "requests",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
@@ -43,8 +38,4 @@ egg_base = "/tmp"
 py-modules = []
 
 [tool.setuptools.packages.find]
-# Only include the medicalexplainer package; exclude data/ and tests/
 include = ["medicalexplainer*"]
-
-[tool.uv]
-constraint-dependencies = ["kaleido!=0.2.1.post1"]

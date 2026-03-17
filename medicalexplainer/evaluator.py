@@ -1,363 +1,317 @@
 """
-evaluator - Orchestrates the LLM evaluation loop and result visualisations.
+evaluator - Orchestrate the LLM triage acuity prediction pipeline.
 
-The :class:`Evaluator` class runs each model against the medical QA dataset,
-compares generated answers with expected ones via a judge LLM, and produces
-pie and bar charts summarising accuracy.
+The :class:`Evaluator` iterates over patient records, asks each model to
+predict the ESI triage acuity (1-5), collects logprobs, and writes
+structured results to a CSV file.
+
+No judge LLM is needed: predictions are compared directly against the
+ground-truth ``acuity`` column from the *triage* table.
 """
 
+import csv
+import json
 import logging
+import math
 import time
-from collections import OrderedDict, defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
-import plotly.express as px
-import plotly.graph_objects as go
-from langchain.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_ollama import ChatOllama
-
 from medicalexplainer.dataset import Dataset
-from medicalexplainer.llm import MODELS
+from medicalexplainer.llm import Llm
 from medicalexplainer.logger import configure_logger
-from medicalexplainer.paths import EVALUATION_DIR, LOG_PATH
+from medicalexplainer.paths import LOG_PATH, RESULTS_DIR
 
 logger = logging.getLogger("evaluator")
 
+# ------------------------------------------------------------------
+# Constants
+# ------------------------------------------------------------------
+
+MAX_RETRIES = 10
+RETRY_BASE_SLEEP = 5  # seconds; exponential backoff multiplier
+API_SLEEP = 2.5  # seconds between API calls (rate-limit guard)
+
 
 class Evaluator:
-    """Evaluates LLM models on a medical QA dataset and generates result charts."""
+    """Evaluate LLM models on ESI triage acuity prediction."""
 
     def __init__(self) -> None:
         configure_logger(name="evaluator", filepath=LOG_PATH)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def evaluate(
+        self,
+        models: list[str],
+        dataset: Dataset,
+        *,
+        use_subtasks: bool = False,
+        limit: int | None = None,
+    ) -> Path:
+        """Run the evaluation pipeline and write results to a CSV.
+
+        Args:
+            models: Model names to evaluate (Ollama or API).
+            dataset: A loaded :class:`Dataset` instance.
+            use_subtasks: Whether to decompose into sub-questions first.
+            limit: Cap the number of patient records to evaluate.
+
+        Returns:
+            Path to the generated results CSV file.
+        """
+        records = dataset.records
+        if limit is not None:
+            records = records[:limit]
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        mode_tag = "subtasks" if use_subtasks else "direct"
+        output_path = RESULTS_DIR / f"results_{mode_tag}_{timestamp}.csv"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        fieldnames = [
+            "model",
+            "subject_id",
+            "stay_id",
+            "ground_truth_acuity",
+            "predicted_acuity",
+            "correct",
+            "use_subtasks",
+            "subquestions",
+            "subanswers",
+            "logprobs_1",
+            "logprobs_2",
+            "logprobs_3",
+            "logprobs_4",
+            "logprobs_5",
+            "prob_1",
+            "prob_2",
+            "prob_3",
+            "prob_4",
+            "prob_5",
+        ]
+
+        total_rows = len(records) * len(models)
+        logger.info(
+            "Starting evaluation: %d models x %d records = %d predictions",
+            len(models),
+            len(records),
+            total_rows,
+        )
+
+        with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for model_name in models:
+                logger.info("Evaluating model: %s", model_name)
+                llm = self._init_model_with_retry(model_name, use_subtasks)
+                if llm is None:
+                    logger.error("Could not initialise model %s, skipping.", model_name)
+                    continue
+
+                for idx, record in enumerate(records):
+                    context = dataset.build_context(record)
+                    row = self._evaluate_single(
+                        llm=llm,
+                        model_name=model_name,
+                        record=record,
+                        context=context,
+                        use_subtasks=use_subtasks,
+                        idx=idx,
+                        total=len(records),
+                    )
+                    writer.writerow(row)
+                    csvfile.flush()
+
+        logger.info("Results written to %s", output_path)
+        return output_path
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _output_dir(model: str, use_subtasks: bool) -> Path:
-        """Return the output directory path for a given model run."""
-        suffix = "" if use_subtasks else "_nodiv"
-        return EVALUATION_DIR / f"{model}{suffix}"
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def evaluate_answer(
-        self, question: str, answer_llm: str, expected_answer: str, context: str
-    ) -> str:
-        """
-        Use a judge LLM to compare a generated answer against the expected answer.
-
-        Args:
-            question (str): The question that was asked.
-            answer_llm (str): The answer generated by the model under test.
-            expected_answer (str): The ground-truth answer from the dataset.
-            context (str): The medical context from the dataset.
-
-        Returns:
-            str: "YES" if the answer is correct, "NO" otherwise.
-        """
-        template = (
-            'Here is a medical question with its context and the answer that was generated by LLM:\n'
-            'Context: "{context}"\n'
-            'Question: "{question}"\n'
-            'Answer LLM: "{answer_LLM}"\n'
-            'Compare it with the expected answer:\n'
-            '"{answer}"\n'
-            'Is the answer generated by the LLM almost correct compared to the expected answer?\n'
-            'You ONLY can answer YES/NO'
-        )
-
-        prompt = ChatPromptTemplate.from_template(template)
-        judge_llm = MODELS["gpt-oss"]()
-
-        chain = prompt | judge_llm.llm | StrOutputParser()
-
-        answer = chain.invoke(
-            {
-                "context": context,
-                "question": question,
-                "answer_LLM": answer_llm,
-                "answer": expected_answer,
-            }
-        )
-        logger.debug(
-            "Question: %s, Answer LLM: %s, Expected: %s, Comparison: %s",
-            question,
-            answer_llm,
-            expected_answer,
-            answer,
-        )
-        return answer
-
-    def evaluate(
-        self,
-        models_to_evaluate: list[str],
-        json_data_path: str,
-        use_subtasks: bool = False,
-        limit: int | None = None,
-    ) -> None:
-        """
-        Evaluate models on medical questions from the JSON dataset.
-
-        Args:
-            models_to_evaluate (list[str]): List of model names to evaluate.
-            json_data_path (str): Path to the JSON dataset file.
-            use_subtasks (bool): Whether to use subtasks division or not.
-            limit (int | None): Cap the number of questions evaluated (useful for testing).
-        """
-        for model in models_to_evaluate:
-            all_results: list[dict] = []
-
+    def _init_model_with_retry(
+        model_name: str, use_subtasks: bool
+    ) -> Llm | None:
+        """Try to initialise a model, retrying on transient failures."""
+        for attempt in range(1, MAX_RETRIES + 1):
             try:
-                logger.debug("Loading dataset from: %s", json_data_path)
-                dataset = Dataset(json_data_path)
+                return Llm(model_name, use_subtasks=use_subtasks)
+            except Exception as exc:
+                logger.warning(
+                    "Model init attempt %d/%d for '%s' failed: %s",
+                    attempt,
+                    MAX_RETRIES,
+                    model_name,
+                    exc,
+                )
+                if attempt < MAX_RETRIES:
+                    time.sleep(RETRY_BASE_SLEEP * attempt)
+        return None
 
-                items = dataset.dataset_items
-                if limit is not None:
-                    items = items[:limit]
+    def _evaluate_single(
+        self,
+        llm: Llm,
+        model_name: str,
+        record: dict,
+        context: str,
+        use_subtasks: bool,
+        idx: int,
+        total: int,
+    ) -> dict:
+        """Evaluate a single record with retries and return a result row."""
+        stay_id = record["stay_id"]
+        subject_id = record["subject_id"]
+        ground_truth = record["acuity"]
 
-                logger.debug("Processing %d items with model: %s", len(items), model)
+        logger.info(
+            "[%s] Record %d/%d (stay_id=%d)",
+            model_name,
+            idx + 1,
+            total,
+            stay_id,
+        )
 
-                for idx, item in enumerate(items):
-                    context = item["context"]
-                    question = item["question"]
-                    expected_answer = item["answer"]
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                if llm.is_api_model:
+                    time.sleep(API_SLEEP)
 
-                    logger.debug(
-                        "Processing question %d/%d: %s... with model: %s",
-                        idx + 1,
-                        len(items),
-                        question[:50],
-                        model,
+                if use_subtasks:
+                    predicted, logprobs, subquestions, subanswers = (
+                        self._predict_with_subtasks(llm, context)
                     )
+                else:
+                    predicted, logprobs = llm.predict_acuity(context)
+                    subquestions = []
+                    subanswers = []
 
-                    eval_result = "PROBLEM"
-                    for attempt in range(10):
-                        logger.debug(
-                            "Attempting question %d, attempt: %d", idx + 1, attempt + 1
-                        )
-                        try:
-                            llm = MODELS[model](use_subtasks=use_subtasks)
+                # Validate prediction
+                predicted_clean = self._parse_acuity(predicted)
 
-                            if use_subtasks:
-                                if not isinstance(llm.llm, ChatOllama):
-                                    time.sleep(2.5)
-                                subquestions = llm.get_subquestions(question)
-                                logger.debug(
-                                    "Generated %d subquestions for question %d",
-                                    len(subquestions),
-                                    idx + 1,
-                                )
+                # Build logprob / probability columns
+                prob_dict = {}
+                for k in ("1", "2", "3", "4", "5"):
+                    lp = logprobs.get(k, float("-inf"))
+                    prob_dict[k] = math.exp(lp) if lp != float("-inf") else 0.0
 
-                                answers: list[str] = []
-                                for subquestion in subquestions:
-                                    if not isinstance(llm.llm, ChatOllama):
-                                        time.sleep(2.5)
-                                    answers.append(
-                                        llm.answer_subquestion(subquestion, context)
-                                    )
+                row = {
+                    "model": model_name,
+                    "subject_id": subject_id,
+                    "stay_id": stay_id,
+                    "ground_truth_acuity": ground_truth,
+                    "predicted_acuity": predicted_clean,
+                    "correct": predicted_clean == ground_truth,
+                    "use_subtasks": use_subtasks,
+                    "subquestions": json.dumps(subquestions) if subquestions else "",
+                    "subanswers": json.dumps(subanswers) if subanswers else "",
+                    "logprobs_1": logprobs.get("1", ""),
+                    "logprobs_2": logprobs.get("2", ""),
+                    "logprobs_3": logprobs.get("3", ""),
+                    "logprobs_4": logprobs.get("4", ""),
+                    "logprobs_5": logprobs.get("5", ""),
+                    "prob_1": prob_dict.get("1", ""),
+                    "prob_2": prob_dict.get("2", ""),
+                    "prob_3": prob_dict.get("3", ""),
+                    "prob_4": prob_dict.get("4", ""),
+                    "prob_5": prob_dict.get("5", ""),
+                }
 
-                                if not isinstance(llm.llm, ChatOllama):
-                                    time.sleep(2.5)
-                                final_answer = llm.get_final_answer(
-                                    question, subquestions, answers
-                                )
-                            else:
-                                if not isinstance(llm.llm, ChatOllama):
-                                    time.sleep(2.5)
-                                final_answer = llm.answer_subquestion(question, context)
-
-                            try:
-                                if not isinstance(llm.llm, ChatOllama):
-                                    time.sleep(2)
-                                eval_result = self.evaluate_answer(
-                                    question, final_answer, expected_answer, context
-                                )
-                            except Exception as exc:
-                                logger.error("Error evaluating answer: %s", exc)
-                                eval_result = "PROBLEM"
-
-                            if eval_result != "PROBLEM":
-                                break
-
-                        except Exception as exc:
-                            logger.error(
-                                "Error processing question %d: %s", idx + 1, exc
-                            )
-                            eval_result = "PROBLEM"
-                            time.sleep(10)
-
-                    all_results.append(
-                        {
-                            "model": model,
-                            "question_id": idx,
-                            "question": question,
-                            "answer_eval": eval_result,
-                        }
-                    )
-
-                    suffix = "" if use_subtasks else "_nodiv"
-                    logger.info(
-                        "Model: %s%s, Question ID: %d, Answer Eval: %s",
-                        model,
-                        suffix,
-                        idx,
-                        eval_result,
-                    )
+                logger.info(
+                    "[%s] stay_id=%d  predicted=%s  ground_truth=%d  correct=%s",
+                    model_name,
+                    stay_id,
+                    predicted_clean,
+                    ground_truth,
+                    predicted_clean == ground_truth,
+                )
+                return row
 
             except Exception as exc:
-                logger.error("Error processing dataset with model %s: %s", model, exc)
-                time.sleep(10)
+                sleep_time = RETRY_BASE_SLEEP * attempt
+                logger.warning(
+                    "[%s] Attempt %d/%d failed for stay_id=%d: %s. "
+                    "Sleeping %ds...",
+                    model_name,
+                    attempt,
+                    MAX_RETRIES,
+                    stay_id,
+                    exc,
+                    sleep_time,
+                )
+                time.sleep(sleep_time)
 
-            logger.debug("Generating pie charts")
-            self.generate_pie_charts(all_results, use_subtasks)
-            logger.debug("Generating bar charts")
-            self.generate_bar_charts(all_results, use_subtasks)
-
-    def generate_bar_charts(
-        self, results: list[dict], use_subtasks: bool = False
-    ) -> None:
-        """
-        Generate grouped bar charts showing correct/incorrect answers per question.
-
-        Args:
-            results (list[dict]): Evaluation results produced by :meth:`evaluate`.
-            use_subtasks (bool): Whether subtasks were used (affects output path).
-        """
-        model_question_data: dict = defaultdict(
-            lambda: defaultdict(lambda: {"YES": 0, "NO": 0})
+        # All retries exhausted
+        logger.error(
+            "[%s] All %d retries exhausted for stay_id=%d",
+            model_name,
+            MAX_RETRIES,
+            stay_id,
         )
+        return {
+            "model": model_name,
+            "subject_id": subject_id,
+            "stay_id": stay_id,
+            "ground_truth_acuity": ground_truth,
+            "predicted_acuity": "",
+            "correct": False,
+            "use_subtasks": use_subtasks,
+            "subquestions": "",
+            "subanswers": "",
+            "logprobs_1": "",
+            "logprobs_2": "",
+            "logprobs_3": "",
+            "logprobs_4": "",
+            "logprobs_5": "",
+            "prob_1": "",
+            "prob_2": "",
+            "prob_3": "",
+            "prob_4": "",
+            "prob_5": "",
+        }
 
-        for result in results:
-            model = result["model"]
-            question_id = result["question_id"]
-            eval_result = result["answer_eval"]
+    def _predict_with_subtasks(
+        self, llm: Llm, context: str
+    ) -> tuple[str, dict[str, float], list[str], list[str]]:
+        """Generate sub-questions, answer them, then predict acuity.
 
-            if eval_result in ("YES", "NO"):
-                model_question_data[model][question_id][eval_result] += 1
-
-        for model, questions in model_question_data.items():
-            sorted_question_ids = sorted(questions.keys())
-
-            yes_values = [questions[q_id]["YES"] for q_id in sorted_question_ids]
-            no_values = [questions[q_id]["NO"] for q_id in sorted_question_ids]
-            q_labels = [f"Q{q_id}" for q_id in sorted_question_ids]
-
-            fig = go.Figure(
-                data=[
-                    go.Bar(
-                        name="Correct (YES)",
-                        x=q_labels,
-                        y=yes_values,
-                        marker_color="#4CAF50",
-                    ),
-                    go.Bar(
-                        name="Incorrect (NO)",
-                        x=q_labels,
-                        y=no_values,
-                        marker_color="#F44336",
-                    ),
-                ]
-            )
-
-            if use_subtasks:
-                title = f"Correct and incorrect answers by question: {model}"
-            else:
-                title = f"Correct and incorrect answers by question: {model} (no division)"
-
-            fig.update_layout(
-                barmode="group",
-                title=title,
-                xaxis_title="Questions",
-                yaxis_title="Count",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                width=1200,
-                height=600,
-                margin=dict(t=60),
-            )
-
-            dir_path = self._output_dir(model, use_subtasks)
-            dir_path.mkdir(parents=True, exist_ok=True)
-
-            with open(dir_path / "answers.txt", "w") as f:
-                f.write(f"Model: {model}\n")
-                f.write("Correct and incorrect answers:\n")
-                for q_id in sorted_question_ids:
-                    yes_count = questions[q_id]["YES"]
-                    no_count = questions[q_id]["NO"]
-                    f.write(f"Question {q_id}: Correct: {yes_count}, Incorrect: {no_count}\n")
-                    logger.info(
-                        "Model: %s, Question %s, Correct: %d, Incorrect: %d",
-                        model,
-                        q_id,
-                        yes_count,
-                        no_count,
-                    )
-
-            fig.write_image(str(dir_path / "grouped_bar_answers.png"))
-
-    def generate_pie_charts(
-        self, results: list[dict], use_subtasks: bool = False
-    ) -> None:
+        Returns:
+            (predicted_acuity, logprobs, subquestions, subanswers)
         """
-        Generate pie charts from the evaluation results.
+        if llm.is_api_model:
+            time.sleep(API_SLEEP)
+        subquestions = llm.get_subquestions(context)
 
-        Args:
-            results (list[dict]): Evaluation results produced by :meth:`evaluate`.
-            use_subtasks (bool): Whether subtasks were used (affects output path).
+        subanswers: list[str] = []
+        for sq in subquestions:
+            if llm.is_api_model:
+                time.sleep(API_SLEEP)
+            subanswers.append(llm.answer_subquestion(sq, context))
+
+        if llm.is_api_model:
+            time.sleep(API_SLEEP)
+        predicted, logprobs = llm.predict_acuity_with_subanswers(
+            context, subquestions, subanswers
+        )
+        return predicted, logprobs, subquestions, subanswers
+
+    @staticmethod
+    def _parse_acuity(raw: str) -> int | str:
+        """Extract an integer 1-5 from the model's raw response.
+
+        Returns the integer if valid, otherwise the raw string for debugging.
         """
-        model_data: dict[str, list[str]] = defaultdict(list)
-        for result in results:
-            model_data[result["model"]].append(result["answer_eval"])
-
-        for model, evaluations in model_data.items():
-            counts: dict[str, int] = OrderedDict(
-                [
-                    ("Correct (YES)", 0),
-                    ("Incorrect (NO)", 0),
-                    ("Problematic (PROBLEM)", 0),
-                ]
-            )
-
-            for eval_result in evaluations:
-                if eval_result == "YES":
-                    counts["Correct (YES)"] += 1
-                elif eval_result == "NO":
-                    counts["Incorrect (NO)"] += 1
-                else:
-                    counts["Problematic (PROBLEM)"] += 1
-
-            total = sum(counts.values())
-            if total == 0:
-                continue
-
-            labels = list(counts.keys())
-            values = [round((count / total) * 100, 2) for count in counts.values()]
-
-            if use_subtasks:
-                title = f"Correct and incorrect answers: {model}"
-            else:
-                title = f"Correct and incorrect answers: {model} (no division)"
-
-            fig = px.pie(
-                names=labels,
-                values=values,
-                title=title,
-                color_discrete_sequence=px.colors.qualitative.Pastel,
-            )
-
-            dir_path = self._output_dir(model, use_subtasks)
-            dir_path.mkdir(parents=True, exist_ok=True)
-
-            with open(dir_path / "answers_pie_chart.txt", "w") as f:
-                f.write(f"Model: {model}\n")
-                f.write("Correct and incorrect answers:\n")
-                for label, value in zip(labels, values):
-                    f.write(f"{label}: {value}%\n")
-                    logger.info("Model: %s, %s: %s%%", model, label, value)
-
-            fig.write_image(str(dir_path / "answers_pie_chart.png"))
+        cleaned = raw.strip()
+        # Take only the first character/digit
+        for ch in cleaned:
+            if ch.isdigit():
+                val = int(ch)
+                if 1 <= val <= 5:
+                    return val
+        # Could not parse
+        logger.warning("Could not parse acuity from response: %r", raw)
+        return cleaned

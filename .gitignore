@@ -1,7 +1,7 @@
 results/
 
-# Generated evaluation output (logs, charts, batch files) — do not commit
-data/evaluation/
+# Dataset and evaluation output — do not commit
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

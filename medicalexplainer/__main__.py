@@ -3,17 +3,18 @@ __main__ - CLI entry point for the medicalexplainer package.
 
 Run with::
 
-    python -m medicalexplainer --dataset <path> [--models m1 m2 ...] [--subtasks] [--limit N]
+    python -m medicalexplainer --models <model1> [model2 ...] [--subtasks] [--limit N]
+                               [--variables var1 var2 ...] [--data-dir DIR]
 """
 
 import argparse
 import logging
 import sys
-from pathlib import Path
 
+from medicalexplainer.dataset import ALL_VARIABLES, Dataset
 from medicalexplainer.evaluator import Evaluator
 from medicalexplainer.logger import configure_logger
-from medicalexplainer.paths import LOG_PATH
+from medicalexplainer.paths import DATA_DIR, LOG_PATH
 
 
 def main() -> None:
@@ -22,65 +23,97 @@ def main() -> None:
     logger = logging.getLogger("main")
 
     parser = argparse.ArgumentParser(
-        description="Medical Question Answering System - Evaluate LLM models on a medical dataset"
-    )
-
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        required=True,
-        help="Path to the JSON dataset file (e.g., data/test.final.json)",
+        description=(
+            "MedicalExplAIner - Predict ESI triage acuity (1-5) using LLMs "
+            "on MIMIC-IV-ED data"
+        ),
     )
 
     parser.add_argument(
         "--models",
         type=str,
         nargs="+",
-        default=["gemini-3.1-pro-preview"],
-        help="List of models to evaluate (e.g., gemini-3.1-pro-preview gpt-oss)",
+        required=True,
+        help=(
+            "One or more model names. Ollama models are auto-pulled if not "
+            "present. API models: gemini-2.5-flash, gemini-2.0-flash, gemma-3-27b"
+        ),
     )
 
     parser.add_argument(
         "--subtasks",
         action="store_true",
-        help="Enable subtasks division (default: False)",
+        help="Decompose into sub-questions before predicting acuity (default: off)",
     )
 
     parser.add_argument(
         "--limit",
         type=int,
         default=None,
-        help="Limit the number of questions to evaluate (useful for testing)",
+        help="Limit the number of patient records to evaluate (useful for testing)",
+    )
+
+    parser.add_argument(
+        "--variables",
+        type=str,
+        nargs="+",
+        default=None,
+        help=(
+            "Subset of variables to include in the patient context. "
+            f"Available: {', '.join(ALL_VARIABLES)}.  Default: all."
+        ),
+    )
+
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=None,
+        help=f"Directory containing MIMIC-IV-ED CSV files (default: {DATA_DIR})",
     )
 
     args = parser.parse_args()
 
-    dataset_path = Path(args.dataset)
-    if not dataset_path.exists():
-        logger.error("Dataset file not found: %s", args.dataset)
-        sys.exit(1)
+    # Validate variables
+    if args.variables:
+        invalid = [v for v in args.variables if v not in ALL_VARIABLES]
+        if invalid:
+            logger.error(
+                "Unknown variables: %s. Available: %s",
+                invalid,
+                ALL_VARIABLES,
+            )
+            sys.exit(1)
 
-    if dataset_path.suffix.lower() != ".json":
-        logger.error("Dataset must be a JSON file, got: %s", dataset_path.suffix)
-        sys.exit(1)
-
-    logger.info("Starting evaluation with dataset: %s", args.dataset)
     logger.info("Models to evaluate: %s", args.models)
     logger.info("Subtasks enabled: %s", args.subtasks)
-
+    logger.info(
+        "Variables: %s", args.variables if args.variables else "all"
+    )
     if args.limit is not None:
-        logger.info("Limiting evaluation to %d questions", args.limit)
+        logger.info("Limiting evaluation to %d records", args.limit)
+
+    try:
+        dataset = Dataset(
+            data_dir=args.data_dir,
+            variables=args.variables,
+        )
+    except FileNotFoundError as exc:
+        logger.error("%s", exc)
+        logger.error(
+            "Download the demo data with: make download-demo-data"
+        )
+        sys.exit(1)
 
     evaluator = Evaluator()
 
     try:
-        evaluator.evaluate(
-            models_to_evaluate=args.models,
-            json_data_path=str(dataset_path),
+        output_path = evaluator.evaluate(
+            models=args.models,
+            dataset=dataset,
             use_subtasks=args.subtasks,
             limit=args.limit,
         )
-        logger.info("Evaluation completed successfully!")
+        logger.info("Evaluation complete! Results: %s", output_path)
     except Exception as exc:
         logger.error("Error during evaluation: %s", exc)
         sys.exit(1)

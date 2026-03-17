@@ -1,17 +1,18 @@
 """
-medicalexplainer - LLM-based medical question answering and evaluation framework.
+medicalexplainer - LLM-based triage acuity prediction on MIMIC-IV-ED data.
 
-This package provides tools to evaluate large language models on medical QA datasets
-by optionally decomposing complex queries into sub-questions before answering.
+This package evaluates large language models on their ability to predict
+Emergency Severity Index (ESI) triage acuity levels (1-5) from emergency
+department patient records.
 
 Public API:
-    Dataset            - Load and validate a SQuAD-formatted medical QA dataset.
-    Evaluator          - Orchestrate the evaluation loop and generate result charts.
-    EvaluatorGptBatch  - Evaluator variant that uses the OpenAI Batch API with logprobs.
+    Dataset    - Load and merge MIMIC-IV-ED CSV files into patient records.
+    Evaluator  - Orchestrate the prediction pipeline and write results.
+    Llm        - Unified LLM wrapper (Ollama + Google API).
 """
 
 from medicalexplainer.dataset import Dataset
 from medicalexplainer.evaluator import Evaluator
-from medicalexplainer.evaluator_gpt_batch import EvaluatorGptBatch  # noqa: F401
+from medicalexplainer.llm import Llm
 
-__all__ = ["Dataset", "Evaluator", "EvaluatorGptBatch"]
+__all__ = ["Dataset", "Evaluator", "Llm"]

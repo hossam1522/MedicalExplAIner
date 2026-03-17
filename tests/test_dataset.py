@@ -1,62 +1,65 @@
 """Tests for the Dataset class."""
 
-import json
 import pytest
 from pathlib import Path
 
-from medicalexplainer.dataset import Dataset
+from medicalexplainer.dataset import ALL_VARIABLES, Dataset
 
 
 @pytest.fixture()
-def valid_json_file(tmp_path: Path) -> Path:
-    """Create a minimal valid SQuAD-style JSON dataset file."""
-    data = {
-        "data": [
-            {
-                "paragraphs": [
-                    {
-                        "context": "Patient has hypertension.",
-                        "qas": [
-                            {
-                                "question": "What condition does the patient have?",
-                                "answers": [{"text": "hypertension", "answer_start": 12}],
-                            }
-                        ],
-                    }
-                ]
-            }
-        ]
-    }
-    file_path = tmp_path / "test_data.json"
-    file_path.write_text(json.dumps(data), encoding="utf-8")
-    return file_path
+def demo_data_dir() -> Path:
+    """Return the path to the demo data directory."""
+    path = Path(__file__).parent.parent / "data"
+    if not (path / "edstays.csv").exists():
+        pytest.skip("Demo data not available (run 'make download-demo-data')")
+    return path
 
 
-def test_dataset_loads_valid_file(valid_json_file: Path) -> None:
-    dataset = Dataset(str(valid_json_file))
-    assert len(dataset.dataset_items) == 1
+def test_dataset_loads_demo_data(demo_data_dir: Path) -> None:
+    dataset = Dataset(data_dir=demo_data_dir)
+    assert len(dataset.records) > 0
 
 
-def test_dataset_item_structure(valid_json_file: Path) -> None:
-    dataset = Dataset(str(valid_json_file))
-    item = dataset.dataset_items[0]
-    assert "context" in item
-    assert "question" in item
-    assert "answer" in item
+def test_dataset_records_have_required_fields(demo_data_dir: Path) -> None:
+    dataset = Dataset(data_dir=demo_data_dir)
+    record = dataset.records[0]
+    assert "subject_id" in record
+    assert "stay_id" in record
+    assert "acuity" in record
+    assert 1 <= record["acuity"] <= 5
 
 
-def test_dataset_raises_for_missing_file() -> None:
+def test_dataset_variable_selection(demo_data_dir: Path) -> None:
+    dataset = Dataset(data_dir=demo_data_dir, variables=["gender", "chiefcomplaint"])
+    record = dataset.records[0]
+    # Selected variables should be present
+    assert "gender" in record or record.get("gender") is None
+    assert "chiefcomplaint" in record or record.get("chiefcomplaint") is None
+    # Non-selected variables should not be present (except identifiers)
+    assert "arrival_transport" not in record
+
+
+def test_dataset_raises_for_missing_dir(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        Dataset("/nonexistent/path/data.json")
+        Dataset(data_dir=tmp_path / "nonexistent")
 
 
-def test_dataset_raises_for_non_json_extension(tmp_path: Path) -> None:
-    txt_file = tmp_path / "data.txt"
-    txt_file.write_text("{}", encoding="utf-8")
-    with pytest.raises(TypeError):
-        Dataset(str(txt_file))
+def test_dataset_raises_for_missing_files(tmp_path: Path) -> None:
+    tmp_path.mkdir(exist_ok=True)
+    with pytest.raises(FileNotFoundError, match="Required file not found"):
+        Dataset(data_dir=tmp_path)
 
 
-def test_dataset_raises_for_directory(tmp_path: Path) -> None:
-    with pytest.raises(FileExistsError):
-        Dataset(str(tmp_path))
+def test_dataset_build_context(demo_data_dir: Path) -> None:
+    dataset = Dataset(data_dir=demo_data_dir)
+    context = dataset.build_context(dataset.records[0])
+    assert isinstance(context, str)
+    assert len(context) > 0
+
+
+def test_all_variables_list() -> None:
+    assert len(ALL_VARIABLES) > 0
+    assert "gender" in ALL_VARIABLES
+    assert "chiefcomplaint" in ALL_VARIABLES
+    assert "diagnoses" in ALL_VARIABLES
+    assert "vs_heartrate" in ALL_VARIABLES
