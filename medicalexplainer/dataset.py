@@ -1,74 +1,90 @@
+"""
+dataset - Dataset loading and validation for medical QA evaluation.
+
+Provides the :class:`Dataset` class that validates and loads a SQuAD-formatted
+medical QA JSON file, then flattens it into a list of
+``{context, question, answer}`` dictionaries.
+"""
+
 import json
 import logging
-import os
 from pathlib import Path
 
 from medicalexplainer.logger import configure_logger
 
-configure_logger(
-    name="dataset",
-    filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log",
-)
 logger = logging.getLogger("dataset")
+
+_LOG_PATH = Path(__file__).parent / "data" / "evaluation" / "medicalexplainer.log"
 
 
 class Dataset:
-    def __init__(self, file_path: str):
+    """Load and validate a SQuAD-formatted medical QA dataset."""
+
+    def __init__(self, file_path: str) -> None:
         """
-        Initialize the dataset object with the medical records JSON file provided
+        Initialize the dataset from a JSON file.
 
         Args:
-            file_path (str): The path of the JSON file to process
+            file_path (str): Path to the JSON file to process.
+
+        Raises:
+            FileNotFoundError: If *file_path* does not exist.
+            FileExistsError: If *file_path* is not a regular file.
+            TypeError: If *file_path* does not have a ``.json`` extension.
         """
-        if not os.path.exists(file_path):
-            logger.error(f"The path {file_path} does not exist")
+        configure_logger(name="dataset", filepath=_LOG_PATH)
+
+        path = Path(file_path)
+
+        if not path.exists():
+            logger.error("The path %s does not exist", file_path)
             raise FileNotFoundError(f"The path {file_path} does not exist")
-        elif not os.path.isfile(file_path):
-            logger.error(f"The path {file_path} is not a file, please provide a file")
+        if not path.is_file():
+            logger.error("The path %s is not a file, please provide a file", file_path)
             raise FileExistsError(
                 f"The path {file_path} is not a file, please provide a file"
             )
-        elif not file_path.endswith(".json"):
+        if path.suffix.lower() != ".json":
             logger.error(
-                f"The file {file_path} is not a JSON file, please provide a JSON file"
+                "The file %s is not a JSON file, please provide a JSON file", file_path
             )
             raise TypeError(
                 f"The file {file_path} is not a JSON file, please provide a JSON file"
             )
-        else:
-            self.__path = os.path.abspath(file_path)
 
-        # Load medical records data
-        self.medical_data = self.__load_data(self.__path)
-        self.dataset_items = self.__prepare_dataset_items()
+        self._path = path.resolve()
 
-    def __load_data(self, file_path: str) -> dict:
+        self.medical_data = self._load_data(self._path)
+        self.dataset_items = self._prepare_dataset_items()
+
+    def _load_data(self, file_path: Path) -> dict:
         """
-        Load medical records from JSON file
+        Load medical records from a JSON file.
 
         Args:
-            file_path (str): The path of the JSON file to load
+            file_path (Path): Resolved path to the JSON file.
 
         Returns:
-            dict: The loaded medical data
+            dict: The parsed medical data.
         """
-        logger.debug(f"Loading medical data from {file_path}")
-        with open(file_path, "r", encoding="utf-8") as f:
+        logger.debug("Loading medical data from %s", file_path)
+        with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
         logger.debug(
-            f"Successfully loaded medical data with {len(data.get('data', []))} records"
+            "Successfully loaded medical data with %d records",
+            len(data.get("data", [])),
         )
         return data
 
-    def __prepare_dataset_items(self) -> list:
+    def _prepare_dataset_items(self) -> list[dict]:
         """
-        Prepare a structured list of dataset items with context, questions and answers
+        Flatten the SQuAD-like structure into a list of QA items.
 
         Returns:
-            list: List of dictionaries containing only context, question, and answer
+            list[dict]: Each item contains ``context``, ``question``, and ``answer``.
         """
         logger.debug("Preparing dataset items from medical data")
-        dataset_items = []
+        dataset_items: list[dict] = []
 
         for record in self.medical_data.get("data", []):
             for paragraph in record.get("paragraphs", []):
@@ -79,13 +95,13 @@ class Dataset:
                     answers = qa.get("answers", [])
 
                     if question and answers:
-                        # Create a minimal item with only context, question, and answer
-                        item = {
-                            "context": context,
-                            "question": question,
-                            "answer": answers[0].get("text", ""),
-                        }
-                        dataset_items.append(item)
+                        dataset_items.append(
+                            {
+                                "context": context,
+                                "question": question,
+                                "answer": answers[0].get("text", ""),
+                            }
+                        )
 
-        logger.debug(f"Prepared {len(dataset_items)} dataset items")
+        logger.debug("Prepared %d dataset items", len(dataset_items))
         return dataset_items

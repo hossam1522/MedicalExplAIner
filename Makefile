@@ -1,21 +1,18 @@
-.PHONY: help check install test install-uv run run-nodiv dev clean download-data clean-data delete-data
+.PHONY: help check install test install-uv run run-nodiv dev clean
 
 help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  help          	Show this help message"
-	@echo "  install-uv    	Install the uv package manager (required)"
-	@echo "  install       	Install the package and its dependencies"
-	@echo "  test          	Run the tests"
-	@echo "  download-data  	Download network files from Wireshark samples"
-	@echo "  clean-data N=<number>	Keep network files with a maximum of <number> packets"
-	@echo "  delete-data   	Delete all network files"
-	@echo "  run MODELS='model1 model2 ...'	Run the program with specified models (space-separated)"
-	@echo "  run-nodiv MODELS='model1 model2 ...'	Run the program without subtasks division"
-	@echo "  dev           	Create a development environment"
-	@echo "  clean         	Remove build artifacts"
-	@echo "  check 	    	Check the code for syntax errors"
+	@echo "  help                                    Show this help message"
+	@echo "  install-uv                              Install the uv package manager (required)"
+	@echo "  install                                 Install the package and its dependencies"
+	@echo "  test                                    Run the test suite"
+	@echo "  run MODELS='model1 model2 ...'          Run the program with subtasks (space-separated models)"
+	@echo "  run-nodiv MODELS='model1 model2 ...'    Run the program without subtasks division"
+	@echo "  dev                                     Create a development virtual environment"
+	@echo "  clean                                   Remove build artifacts and caches"
+	@echo "  check                                   Check source files for syntax errors"
 
 install-uv:
 	wget -qO- https://astral.sh/uv/install.sh | sh
@@ -24,7 +21,10 @@ check:
 	python3 -m py_compile medicalexplainer/*.py
 
 install:
-	uv run pip install .
+	uv pip install -e .
+
+test:
+	uv run pytest tests/
 
 run:
 	uv run python -m medicalexplainer \
@@ -37,9 +37,8 @@ run-nodiv:
 		--models $(MODELS)
 
 dev:
-	uv venv dev
-	. dev/bin/activate
-	uv run pip install -e .[dev]
+	uv venv .venv
+	uv pip install -e .[dev]
 
 clean:
 	rm -rf *.egg-info/ .pytest_cache/ __pycache__/ build/ dist/ medicalexplainer/__pycache__/ tests/__pycache__/

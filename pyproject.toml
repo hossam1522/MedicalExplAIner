@@ -10,22 +10,31 @@ authors = [
     { name = "Hossam", email = "hossam@correo.ugr.es" }
 ]
 dependencies = [
-    "scapy",
-    "pytest",
     "langchain",
     "langchain_google_genai",
     "langchain_community",
     "langchain_core",
+    "langchain-ollama",
     "chromadb",
     "numexpr",
     "pandas",
     "plotly",
     "kaleido",
-    "langchain-ollama",
-    "openai"
+    "openai",
+    "python-dotenv",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
 
 [tool.distutils.egg_info]
 egg_base = "/tmp"
