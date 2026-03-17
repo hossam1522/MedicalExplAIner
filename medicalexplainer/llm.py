@@ -1,8 +1,21 @@
-import logging
-import os
-import warnings
-from pathlib import Path
+"""
+llm - LLM wrapper with dynamic Ollama model support.
 
+Provides a single :class:`Llm` class that works with any Ollama model
+without requiring code changes.  Ollama models are automatically pulled
+if not already available locally.
+
+Google API models (Gemini, Gemma) are also supported via explicit
+registration in :data:`API_MODELS`.
+"""
+
+import logging
+import math
+import os
+import subprocess
+import warnings
+
+import requests
 from dotenv import load_dotenv
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import BaseMessage
@@ -10,273 +23,354 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 
 from medicalexplainer.logger import configure_logger
+from medicalexplainer.paths import LOG_PATH
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-configure_logger(
-    name="llm", filepath=Path(__file__).parent / "data/evaluation/medicalexplainer.log"
-)
+
 logger = logging.getLogger("llm")
 
+# ------------------------------------------------------------------
+# Google API model definitions (these require API keys)
+# ------------------------------------------------------------------
 
-class LLM:
-    def __init__(self, use_subtasks: bool = False):
-        """
-        Initialize the LLM object
+API_MODELS: dict[str, dict] = {
+    "gemini-2.5-flash": {
+        "backend": "google",
+        "model_id": "gemini-2.5-flash-preview-04-17",
+        "temperature": 0,
+    },
+    "gemini-2.0-flash": {
+        "backend": "google",
+        "model_id": "gemini-2.0-flash",
+        "temperature": 0,
+    },
+    "gemma-3-27b": {
+        "backend": "google",
+        "model_id": "gemma-3-27b-it",
+        "temperature": 0.1,
+        "top_p": 0.95,
+        "top_k": 64,
+    },
+}
 
-        Args:
-            use_subtasks (bool): Whether to use subtasks division or not
-        """
+
+# ------------------------------------------------------------------
+# Ollama helpers
+# ------------------------------------------------------------------
+
+
+def is_ollama_available() -> bool:
+    """Check whether the Ollama service is reachable."""
+    try:
+        resp = requests.get("http://localhost:11434/api/tags", timeout=5)
+        return resp.status_code == 200
+    except requests.ConnectionError:
+        return False
+
+
+def ollama_model_exists(model_name: str) -> bool:
+    """Check whether *model_name* is already pulled in Ollama."""
+    try:
+        resp = requests.get("http://localhost:11434/api/tags", timeout=5)
+        if resp.status_code == 200:
+            models = resp.json().get("models", [])
+            for m in models:
+                # Ollama reports names like "llama3.1:latest"
+                name = m.get("name", "")
+                if name == model_name or name.startswith(f"{model_name}:"):
+                    return True
+        return False
+    except requests.ConnectionError:
+        return False
+
+
+def ollama_pull(model_name: str) -> None:
+    """Pull a model into Ollama (blocking)."""
+    logger.info("Pulling Ollama model '%s' (this may take a while)...", model_name)
+    result = subprocess.run(
+        ["ollama", "pull", model_name],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Failed to pull Ollama model '{model_name}': {result.stderr.strip()}"
+        )
+    logger.info("Successfully pulled model '%s'", model_name)
+
+
+def ensure_ollama_model(model_name: str) -> None:
+    """Make sure *model_name* is available in Ollama, pulling it if necessary."""
+    if not is_ollama_available():
+        raise RuntimeError(
+            "Ollama is not running.  Start it with 'ollama serve' or "
+            "'systemctl start ollama'."
+        )
+    if not ollama_model_exists(model_name):
+        ollama_pull(model_name)
+
+
+# ------------------------------------------------------------------
+# Main LLM class
+# ------------------------------------------------------------------
+
+
+class Llm:
+    """Unified LLM wrapper for both Ollama and Google API models.
+
+    For Ollama models, instantiation will auto-pull the model if needed.
+    Any model name not present in :data:`API_MODELS` is treated as an Ollama
+    model.
+    """
+
+    def __init__(self, model_name: str, *, use_subtasks: bool = False) -> None:
+        configure_logger(name="llm", filepath=LOG_PATH)
         load_dotenv()
-        self.llm = None
-        self.model = None
+
+        self.model = model_name
         self.use_subtasks = use_subtasks
-        self.context = None  # Will be set when answering questions
+        self.is_api_model = model_name in API_MODELS
+
+        if self.is_api_model:
+            self._init_api_model(model_name)
+        else:
+            self._init_ollama_model(model_name)
+
+    # ---- initialisers ------------------------------------------------
+
+    def _init_api_model(self, name: str) -> None:
+        cfg = API_MODELS[name]
+        api_key = os.getenv("GOOGLE_API_KEY") or ""
+        os.environ["GOOGLE_API_KEY"] = api_key
+
+        kwargs: dict = {
+            "model": cfg["model_id"],
+            "temperature": cfg.get("temperature", 0),
+            "max_tokens": None,
+            "timeout": None,
+        }
+        if "top_p" in cfg:
+            kwargs["top_p"] = cfg["top_p"]
+        if "top_k" in cfg:
+            kwargs["top_k"] = cfg["top_k"]
+
+        self.llm = ChatGoogleGenerativeAI(**kwargs)
+        logger.debug("Initialised Google API model: %s", name)
+
+    def _init_ollama_model(self, name: str) -> None:
+        ensure_ollama_model(name)
+        self.llm = ChatOllama(
+            model=name,
+            num_ctx=32768,
+            temperature=0,
+        )
+        logger.debug("Initialised Ollama model: %s", name)
+
+    # ---- LLM calling -------------------------------------------------
 
     def call_llm(self, messages: list[BaseMessage]) -> str:
-        """
-        Call the LLM with the provided messages and return the response.
-
-        Args:
-            messages (list[BaseMessage]): The list of messages to process
-
-        Returns:
-            str: The response from the LLM
-        """
+        """Invoke the LLM and return the text response."""
         response = self.llm.invoke(messages)
         return response.content
 
-    def get_subquestions(self, question: str) -> list:
+    def call_llm_with_logprobs(
+        self, messages: list[BaseMessage]
+    ) -> tuple[str, dict[str, float]]:
+        """Invoke the LLM and return (text, logprobs_dict).
+
+        For Ollama models, logprobs are obtained via the raw Ollama HTTP API
+        (``/api/chat``) because langchain-ollama does not directly expose them.
+
+        For API models, logprobs are not available; the dict will be empty.
+
+        The logprobs dict maps each token (``"1"``-``"5"``) to its
+        log-probability.  Missing tokens get ``-inf``.
         """
-        Get sub-questions from the LLM for medical questions
+        if self.is_api_model:
+            text = self.call_llm(messages)
+            return text, {}
 
-        Args:
-            question (str): The medical question to process
+        return self._ollama_chat_with_logprobs(messages)
 
-        Returns:
-            list: A list of sub-questions
-        """
-        template = """You are a medical expert that generates multiple sub-questions related to a medical question.
-        The sub-questions should help break down complex medical queries into simpler, more specific questions.
+    def _ollama_chat_with_logprobs(
+        self, messages: list[BaseMessage]
+    ) -> tuple[str, dict[str, float]]:
+        """Call Ollama's ``/api/chat`` endpoint with ``logprobs=True``."""
+        ollama_messages = []
+        for m in messages:
+            role = "user"
+            if m.type == "system":
+                role = "system"
+            elif m.type == "ai":
+                role = "assistant"
+            ollama_messages.append({"role": role, "content": m.content})
 
-        I do not need the answer to the question. The output should only contain the sub-questions.
-        Generate maximum 3 sub-questions. Be as clear and specific as possible.
-        The sub-questions should not directly answer the input question but help gather information to answer it.
-
-        Input question: {question}"""
-
-        prompt_decomposition = ChatPromptTemplate.from_template(template)
-        messages = {"question": question}
-
-        sub_questions = self.call_llm(prompt_decomposition.format_messages(**messages))
-        sub_questions = [q.strip() for q in sub_questions.split("\n") if q.strip()]
-
-        logger.debug(
-            f"Model: {self.model}, Question: {question}, Sub-questions generated: {sub_questions}"
-        )
-        return sub_questions
-
-    def answer_subquestion(self, question: str, context: str) -> str:
-        """
-        Answer a sub-question using the LLM with medical context
-
-        Args:
-            question (str): The question to answer
-            context (str): The medical context/patient record
-
-        Returns:
-            str: The answer to the question
-        """
-        template = """You are a medical expert that answers questions about patient medical records.
-        Use the following patient medical record to answer the question.
-        Provide a clear, concise, and accurate answer based ONLY on the information in the medical record.
-        DO NOT make assumptions or provide information not present in the record.
-
-        Question: "{question}"
-
-        Patient Medical Record:
-        {context}"""
-
-        prompt = ChatPromptTemplate.from_template(template)
-        messages = {"context": context, "question": question}
-
-        answer = self.call_llm(prompt.format_messages(**messages))
-
-        logger.debug(f"Model: {self.model}, Question: {question}, Answer: {answer}")
-        return answer
-
-    def format_qa_pairs(self, questions: list, answers: list) -> str:
-        """
-        Format the questions and answers into a string
-        Args:
-            questions (list): The list of questions
-            answers (list): The list of answers
-        Returns:
-            str: The formatted string
-        """
-        formatted_string = ""
-        for i, (question, answer) in enumerate(zip(questions, answers), start=1):
-            formatted_string += f"Question {i}: {question}\nAnswer {i}: {answer}\n\n"
-        return formatted_string.strip()
-
-    def get_final_answer(self, question: str, subquestions: list, answers: list) -> str:
-        """
-        Combine the sub-questions and answers to get a final answer
-
-        Args:
-            question (str): The original medical question
-            subquestions (list): The list of sub-questions
-            answers (list): The list of answers to the sub-questions
-
-        Returns:
-            str: The final synthesized answer
-        """
-        template = """You are a medical expert. Here is a set of sub-questions and their answers about a patient:
-
-        {context}
-
-        Use these answers to synthesize a comprehensive and accurate answer to the main question: {question}
-
-        Provide a clear and concise answer that integrates all relevant information from the sub-answers.
-        Approximately 10-15 words."""
-
-        prompt = ChatPromptTemplate.from_template(template)
-        messages = {
-            "context": self.format_qa_pairs(subquestions, answers),
-            "question": question,
+        payload = {
+            "model": self.model,
+            "messages": ollama_messages,
+            "stream": False,
+            "options": {
+                "temperature": 0,
+                "num_ctx": 32768,
+                "num_predict": 1,
+            },
+            "logprobs": True,
+            "top_logprobs": 10,
         }
 
-        final_answer = self.call_llm(prompt.format_messages(**messages))
+        resp = requests.post(
+            "http://localhost:11434/api/chat",
+            json=payload,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        text = data.get("message", {}).get("content", "").strip()
+
+        # Extract logprobs for tokens "1" through "5"
+        logprobs_dict: dict[str, float] = {
+            str(i): float("-inf") for i in range(1, 6)
+        }
+
+        # Ollama returns top_logprobs in the response
+        top_logprobs = data.get("top_logprobs", [])
+        if top_logprobs and len(top_logprobs) > 0:
+            first_token_probs = top_logprobs[0]  # dict token -> logprob
+            for token, logprob in first_token_probs.items():
+                clean = token.strip()
+                if clean in logprobs_dict:
+                    logprobs_dict[clean] = logprob
+
+        # Also convert to probabilities for logging
+        prob_dict: dict[str, float] = {}
+        for token, lp in logprobs_dict.items():
+            prob_dict[token] = math.exp(lp) if lp != float("-inf") else 0.0
 
         logger.debug(
-            f"Model: {self.model}, Question: {question}, Final answer: {final_answer}"
+            "Model %s logprobs: %s, probabilities: %s",
+            self.model,
+            logprobs_dict,
+            prob_dict,
         )
-        return final_answer
 
+        return text, logprobs_dict
 
-class LLM_GEMINI(LLM):
-    """
-    Class for Google Gemini LLM
-    """
+    # ---- Prompt methods ----------------------------------------------
 
-    def __init__(self, use_subtasks: bool = False):
+    def predict_acuity(self, context: str) -> tuple[str, dict[str, float]]:
+        """Ask the LLM to predict the triage acuity level (1-5).
+
+        Returns:
+            (predicted_acuity, logprobs_dict) where predicted_acuity is a
+            string "1"-"5" and logprobs_dict maps "1"-"5" to log-probabilities.
         """
-        Initialize the Gemini LLM
+        template = """You are an emergency medicine specialist. Based on the following patient information from an Emergency Department visit, predict the triage acuity level.
+
+The Emergency Severity Index (ESI) triage acuity scale is:
+1 = Resuscitation (most severe, life-threatening)
+2 = Emergent (high risk, severe pain, or altered mental status)
+3 = Urgent (stable but needs multiple resources)
+4 = Less urgent (needs one resource)
+5 = Non-urgent (no resources needed)
+
+Patient information:
+{context}
+
+Based on this information, what is the triage acuity level? Respond with ONLY a single number from 1 to 5."""
+
+        prompt = ChatPromptTemplate.from_template(template)
+        messages = prompt.format_messages(context=context)
+
+        text, logprobs = self.call_llm_with_logprobs(messages)
+        return text.strip(), logprobs
+
+    def get_subquestions(self, context: str) -> list[str]:
+        """Generate sub-questions to gather information before predicting acuity.
 
         Args:
-            use_subtasks (bool): Whether to use subtasks division or not
+            context: The patient context string.
+
+        Returns:
+            A list of up to 3 sub-questions.
         """
-        super().__init__(use_subtasks)
-        os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
+        template = """You are an emergency medicine specialist. You need to assess the triage acuity level (1-5) for a patient. Before making your prediction, generate up to 3 specific sub-questions that would help you determine the severity.
 
-        self.model = "gemini-3.1-pro-preview"
-        self.use_subtasks = use_subtasks
+The sub-questions should focus on aspects of the patient data that are most relevant for determining acuity.
 
-        llm = ChatGoogleGenerativeAI(
-            model=self.model,
-            temperature=0,
-            max_tokens=None,
-            timeout=None,
-        )
+Patient information:
+{context}
 
-        self.llm = llm
-        logger.debug("Using Gemini 2.5 Flash Lite LLM")
+Generate up to 3 sub-questions. Output ONLY the sub-questions, one per line."""
 
+        prompt = ChatPromptTemplate.from_template(template)
+        messages = prompt.format_messages(context=context)
 
-class LLM_GEMMA_3(LLM):
-    """
-    Class for Google Gemma 3 LLM
-    """
+        raw = self.call_llm(messages)
+        subquestions = [q.strip() for q in raw.split("\n") if q.strip()]
+        logger.debug("Generated %d subquestions", len(subquestions))
+        return subquestions[:3]
 
-    def __init__(self, use_subtasks: bool = False):
-        """
-        Initialize the Gemma 3 LLM
+    def answer_subquestion(self, question: str, context: str) -> str:
+        """Answer a sub-question given the patient context.
 
         Args:
-            use_subtasks (bool): Whether to use subtasks division or not
+            question: The sub-question to answer.
+            context: The patient context string.
+
+        Returns:
+            The answer string.
         """
-        super().__init__(use_subtasks)
-        os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
+        template = """You are an emergency medicine specialist. Answer the following question based ONLY on the patient information provided. Be concise and specific.
 
-        self.model = "gemma-3-27b-it"
-        self.use_subtasks = use_subtasks
+Patient information:
+{context}
 
-        llm = ChatGoogleGenerativeAI(
-            model=self.model,
-            temperature=0.1,
-            top_p=0.95,
-            top_k=64,
-            max_tokens=None,
-            timeout=None,
-        )
+Question: {question}
 
-        self.llm = llm
-        logger.debug("Using Gemma 3 LLM")
+Answer:"""
 
+        prompt = ChatPromptTemplate.from_template(template)
+        messages = prompt.format_messages(context=context, question=question)
+        return self.call_llm(messages)
 
-class LLM_GPT_OSS(LLM):
-    """
-    Class for gpt-oss 20B LLM
-    """
-
-    def __init__(self, use_subtasks: bool = False):
-        """
-        Initialize the gpt-oss 20B LLM
+    def predict_acuity_with_subanswers(
+        self, context: str, subquestions: list[str], answers: list[str]
+    ) -> tuple[str, dict[str, float]]:
+        """Predict acuity given sub-question analysis.
 
         Args:
-            use_subtasks (bool): Whether to use subtasks division or not
+            context: The patient context string.
+            subquestions: List of sub-questions previously generated.
+            answers: List of answers to those sub-questions.
+
+        Returns:
+            (predicted_acuity, logprobs_dict)
         """
-        super().__init__(use_subtasks)
-
-        self.model = "gpt-oss"
-        self.use_subtasks = use_subtasks
-
-        llm = ChatOllama(
-            model=self.model,
-            num_ctx=32768,
-            temperature=0.7,
-            top_p=0.8,
-            top_k=20,
+        qa_pairs = "\n".join(
+            f"Q: {q}\nA: {a}" for q, a in zip(subquestions, answers)
         )
 
-        self.llm = llm
-        logger.debug("Using gpt-oss 20B LLM")
+        template = """You are an emergency medicine specialist. Based on the patient information and the analysis below, predict the triage acuity level.
 
+The Emergency Severity Index (ESI) triage acuity scale is:
+1 = Resuscitation (most severe, life-threatening)
+2 = Emergent (high risk, severe pain, or altered mental status)
+3 = Urgent (stable but needs multiple resources)
+4 = Less urgent (needs one resource)
+5 = Non-urgent (no resources needed)
 
-class LLM_OPENBIOLLM(LLM):
-    """
-    Class for OpenBioLLM 8B LLM
-    """
+Patient information:
+{context}
 
-    def __init__(self, use_subtasks: bool = False):
-        """
-        Initialize the OpenBioLLM 8B LLM
+Clinical analysis:
+{qa_pairs}
 
-        Args:
-            use_subtasks (bool): Whether to use subtasks division or not
-        """
-        super().__init__(use_subtasks)
+Based on all this information, what is the triage acuity level? Respond with ONLY a single number from 1 to 5."""
 
-        self.model = "openbiollm"
-        self.use_subtasks = use_subtasks
+        prompt = ChatPromptTemplate.from_template(template)
+        messages = prompt.format_messages(context=context, qa_pairs=qa_pairs)
 
-        llm = ChatOllama(
-            model=self.model,
-            num_ctx=8096,
-            temperature=0.7,
-            top_p=0.8,
-            top_k=20,
-        )
-
-        self.llm = llm
-        logger.debug("Using OpenBioLLM 8B LLM")
-
-
-"""
-This dictionary maps model names to their respective LLM classes
-"""
-models = {
-    "gemini-3.1-pro-preview": LLM_GEMINI,
-    "gemma-3-27b": LLM_GEMMA_3,
-    "gpt-oss": LLM_GPT_OSS,
-    "openbiollm": LLM_OPENBIOLLM,
-}
+        text, logprobs = self.call_llm_with_logprobs(messages)
+        return text.strip(), logprobs
