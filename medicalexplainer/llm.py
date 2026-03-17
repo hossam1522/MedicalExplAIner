@@ -8,7 +8,6 @@ along with the :data:`MODELS` registry that maps model-name strings to their cla
 import logging
 import os
 import warnings
-from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain.prompts import ChatPromptTemplate

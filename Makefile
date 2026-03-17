@@ -28,12 +28,12 @@ test:
 
 run:
 	uv run python -m medicalexplainer \
-		--dataset medicalexplainer/data/test.final.json \
+		--dataset data/test.final.json \
 		--models $(MODELS) --subtasks
 
 run-nodiv:
 	uv run python -m medicalexplainer \
-		--dataset medicalexplainer/data/test.final.json \
+		--dataset data/test.final.json \
 		--models $(MODELS)
 
 dev:

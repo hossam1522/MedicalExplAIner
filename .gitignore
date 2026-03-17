@@ -1,5 +1,8 @@
 results/
 
+# Generated evaluation output (logs, charts, batch files) — do not commit
+data/evaluation/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -14,8 +17,6 @@ build/
 develop-eggs/
 dist/
 downloads/
-data/
-!data/questions.yaml
 eggs/
 .eggs/
 lib/

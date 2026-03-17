@@ -11,10 +11,9 @@ import logging
 from pathlib import Path
 
 from medicalexplainer.logger import configure_logger
+from medicalexplainer.paths import LOG_PATH
 
 logger = logging.getLogger("dataset")
-
-_LOG_PATH = Path(__file__).parent / "data" / "evaluation" / "medicalexplainer.log"
 
 
 class Dataset:
@@ -32,7 +31,7 @@ class Dataset:
             FileExistsError: If *file_path* is not a regular file.
             TypeError: If *file_path* does not have a ``.json`` extension.
         """
-        configure_logger(name="dataset", filepath=_LOG_PATH)
+        configure_logger(name="dataset", filepath=LOG_PATH)
 
         path = Path(file_path)
 

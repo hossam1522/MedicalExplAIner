@@ -20,17 +20,16 @@ from langchain_ollama import ChatOllama
 from medicalexplainer.dataset import Dataset
 from medicalexplainer.llm import MODELS
 from medicalexplainer.logger import configure_logger
+from medicalexplainer.paths import EVALUATION_DIR, LOG_PATH
 
 logger = logging.getLogger("evaluator")
-
-_LOG_PATH = Path(__file__).parent / "data" / "evaluation" / "medicalexplainer.log"
 
 
 class Evaluator:
     """Evaluates LLM models on a medical QA dataset and generates result charts."""
 
     def __init__(self) -> None:
-        configure_logger(name="evaluator", filepath=_LOG_PATH)
+        configure_logger(name="evaluator", filepath=LOG_PATH)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -40,7 +39,7 @@ class Evaluator:
     def _output_dir(model: str, use_subtasks: bool) -> Path:
         """Return the output directory path for a given model run."""
         suffix = "" if use_subtasks else "_nodiv"
-        return Path("medicalexplainer") / "data" / "evaluation" / f"{model}{suffix}"
+        return EVALUATION_DIR / f"{model}{suffix}"
 
     # ------------------------------------------------------------------
     # Public API

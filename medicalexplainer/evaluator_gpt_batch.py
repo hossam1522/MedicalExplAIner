@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import time
-from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_ollama import ChatOllama
@@ -20,10 +19,9 @@ from medicalexplainer.dataset import Dataset
 from medicalexplainer.evaluator import Evaluator
 from medicalexplainer.llm import MODELS
 from medicalexplainer.logger import configure_logger
+from medicalexplainer.paths import BATCH_REQUESTS_DIR, BATCH_RESULTS_DIR, LOG_PATH
 
 logger = logging.getLogger("evaluator_gpt_batch")
-
-_LOG_PATH = Path(__file__).parent / "data" / "evaluation" / "medicalexplainer.log"
 
 
 class EvaluatorGptBatch(Evaluator):
@@ -35,7 +33,7 @@ class EvaluatorGptBatch(Evaluator):
     def __init__(self) -> None:
         """Initialize the batch evaluator with an OpenAI client."""
         super().__init__()
-        configure_logger(name="evaluator_gpt_batch", filepath=_LOG_PATH)
+        configure_logger(name="evaluator_gpt_batch", filepath=LOG_PATH)
         load_dotenv()
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.batch_model = "gpt-4.1-nano"
@@ -112,7 +110,7 @@ class EvaluatorGptBatch(Evaluator):
         Returns:
             list[str]: Paths to the created JSONL files.
         """
-        batch_dir = Path(__file__).parent / "data" / "evaluation" / "batch_requests"
+        batch_dir = BATCH_REQUESTS_DIR
         batch_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = int(time.time())
@@ -293,11 +291,7 @@ class EvaluatorGptBatch(Evaluator):
                 try:
                     error_file_response = self.client.files.content(batch.error_file_id)
                     error_file_path = (
-                        Path(__file__).parent
-                        / "data"
-                        / "evaluation"
-                        / "batch_results"
-                        / f"batch_errors_{batch.id}.jsonl"
+                        BATCH_RESULTS_DIR / f"batch_errors_{batch.id}.jsonl"
                     )
                     error_file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -326,7 +320,7 @@ class EvaluatorGptBatch(Evaluator):
         logger.info("Downloading results from file: %s", result_file_id)
         file_response = self.client.files.content(result_file_id)
 
-        results_dir = Path(__file__).parent / "data" / "evaluation" / "batch_results"
+        results_dir = BATCH_RESULTS_DIR
         results_dir.mkdir(parents=True, exist_ok=True)
         results_file_path = results_dir / f"batch_results_{batch.id}.jsonl"
 

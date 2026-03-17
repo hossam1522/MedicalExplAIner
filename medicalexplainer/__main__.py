@@ -13,13 +13,12 @@ from pathlib import Path
 
 from medicalexplainer.evaluator import Evaluator
 from medicalexplainer.logger import configure_logger
-
-_LOG_PATH = Path(__file__).parent / "data" / "evaluation" / "medicalexplainer.log"
+from medicalexplainer.paths import LOG_PATH
 
 
 def main() -> None:
     """Parse CLI arguments and run the evaluation pipeline."""
-    configure_logger(name="main", filepath=_LOG_PATH)
+    configure_logger(name="main", filepath=LOG_PATH)
     logger = logging.getLogger("main")
 
     parser = argparse.ArgumentParser(
@@ -30,7 +29,7 @@ def main() -> None:
         "--dataset",
         type=str,
         required=True,
-        help="Path to the JSON dataset file (e.g., medicalexplainer/data/test.final.json)",
+        help="Path to the JSON dataset file (e.g., data/test.final.json)",
     )
 
     parser.add_argument(
