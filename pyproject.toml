@@ -17,6 +17,7 @@ dependencies = [
     "pandas",
     "python-dotenv",
     "requests",
+    "rich>=13.0",
 ]
 requires-python = ">=3.10"
 readme = "README.md"

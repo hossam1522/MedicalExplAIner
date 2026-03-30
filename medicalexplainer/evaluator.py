@@ -17,6 +17,22 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from rich.console import Console
+from rich.live import Live
+from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
+from rich.table import Table
+from rich.text import Text
+
 from medicalexplainer.dataset import Dataset
 from medicalexplainer.llm import Llm
 from medicalexplainer.logger import configure_logger
@@ -31,6 +47,24 @@ logger = logging.getLogger("evaluator")
 MAX_RETRIES = 10
 RETRY_BASE_SLEEP = 5  # seconds; exponential backoff multiplier
 API_SLEEP = 2.5  # seconds between API calls (rate-limit guard)
+
+_console = Console(stderr=False)
+
+
+def _make_progress() -> Progress:
+    """Build a rich Progress instance with all desired columns."""
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.fields[model]}", justify="right"),
+        BarColumn(bar_width=None),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        TextColumn("ETA"),
+        TimeRemainingColumn(),
+        console=_console,
+        expand=True,
+    )
 
 
 class Evaluator:
@@ -93,11 +127,13 @@ class Evaluator:
             "prob_5",
         ]
 
-        total_rows = len(records) * len(models)
+        n_records = len(records)
+        n_models = len(models)
+        total_rows = n_records * n_models
         logger.info(
             "Starting evaluation: %d models x %d records = %d predictions",
-            len(models),
-            len(records),
+            n_models,
+            n_records,
             total_rows,
         )
 
@@ -105,26 +141,54 @@ class Evaluator:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
-            for model_name in models:
-                logger.info("Evaluating model: %s", model_name)
-                llm = self._init_model_with_retry(model_name, use_subtasks)
-                if llm is None:
-                    logger.error("Could not initialise model %s, skipping.", model_name)
-                    continue
+            with _make_progress() as progress:
+                # One overall task spanning every model+record combination
+                overall_task = progress.add_task(
+                    "overall",
+                    total=total_rows,
+                    model="initialising...",
+                )
 
-                for idx, record in enumerate(records):
-                    context = dataset.build_context(record)
-                    row = self._evaluate_single(
-                        llm=llm,
-                        model_name=model_name,
-                        record=record,
-                        context=context,
-                        use_subtasks=use_subtasks,
-                        idx=idx,
-                        total=len(records),
-                    )
-                    writer.writerow(row)
-                    csvfile.flush()
+                for model_idx, model_name in enumerate(models):
+                    logger.info("Evaluating model: %s", model_name)
+
+                    # Update spinner label to show current model
+                    progress.update(overall_task, model=model_name)
+
+                    llm = self._init_model_with_retry(model_name, use_subtasks)
+                    if llm is None:
+                        logger.error(
+                            "Could not initialise model %s, skipping.", model_name
+                        )
+                        # Advance progress by all skipped records
+                        progress.advance(overall_task, n_records)
+                        continue
+
+                    for idx, record in enumerate(records):
+                        context = dataset.build_context(record)
+
+                        # Describe what is happening in the progress bar description
+                        progress.update(
+                            overall_task,
+                            model=(
+                                f"{model_name}  "
+                                f"[dim](model {model_idx + 1}/{n_models})[/dim]"
+                            ),
+                        )
+
+                        row = self._evaluate_single(
+                            llm=llm,
+                            model_name=model_name,
+                            record=record,
+                            context=context,
+                            use_subtasks=use_subtasks,
+                            idx=idx,
+                            total=n_records,
+                        )
+                        writer.writerow(row)
+                        csvfile.flush()
+
+                        progress.advance(overall_task, 1)
 
         logger.info("Results written to %s", output_path)
         return output_path
@@ -221,6 +285,7 @@ class Evaluator:
                     "prob_5": prob_dict.get("5", ""),
                 }
 
+                correct_sym = "[green]OK[/green]" if predicted_clean == ground_truth else "[red]NO[/red]"
                 logger.info(
                     "[%s] stay_id=%d  predicted=%s  ground_truth=%d  correct=%s",
                     model_name,
