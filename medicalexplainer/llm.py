@@ -223,7 +223,7 @@ class Llm:
         self.llm = ChatOllama(
             model=name,
             base_url=base_url,
-            num_ctx=32768,
+            num_ctx=4096,
             temperature=0,
         )
         # Probe once to detect reasoning models (e.g. DeepSeek-R1, gpt-oss).
@@ -383,9 +383,10 @@ class Llm:
             "model": self.model,
             "messages": ollama_messages,
             "stream": False,
+            "keep_alive": "1h",  # keep model in VRAM for the full evaluation run
             "options": {
                 "temperature": 0,
-                "num_ctx": 32768,
+                "num_ctx": 4096,  # patient context is ~500 chars; 4096 is ample
                 "num_predict": num_predict,
             },
             "logprobs": True,
