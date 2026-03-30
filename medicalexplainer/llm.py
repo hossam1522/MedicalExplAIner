@@ -279,12 +279,18 @@ class Llm:
             )
             return False
 
-    def call_llm(self, messages: list[BaseMessage]) -> str:
+    def call_llm(self, messages: list[BaseMessage], max_tokens: int = -1) -> str:
         """Invoke the LLM and return the text response.
 
         For Ollama models this goes through the raw ``/api/chat`` endpoint so
         that the ``think`` flag (and correct ``num_predict``) are respected.
         For API models it falls back to the LangChain ``invoke`` path.
+
+        Args:
+            messages: The conversation messages to send.
+            max_tokens: Maximum tokens to generate.  ``-1`` means unlimited
+                (Ollama default).  Pass a positive value to cap generation
+                for short free-text responses (e.g. subquestions, answers).
         """
         if not self.is_api_model:
             ollama_messages = []
@@ -295,10 +301,9 @@ class Llm:
                 elif m.type == "ai":
                     role = "assistant"
                 ollama_messages.append({"role": role, "content": m.content})
-            # Always use num_predict=-1 for free-text calls so the model can
-            # finish its response.  The think flag controls whether the
-            # reasoning chain is included (reasoning models only).
-            data = self._ollama_post(ollama_messages, num_predict=-1)
+            # The think flag controls whether the reasoning chain is included.
+            # max_tokens caps generation for short responses.
+            data = self._ollama_post(ollama_messages, num_predict=max_tokens)
             return data.get("message", {}).get("content", "").strip()
 
         response = self.llm.invoke(messages)
@@ -501,7 +506,7 @@ Generate up to 3 sub-questions. Output ONLY the sub-questions, one per line."""
         prompt = ChatPromptTemplate.from_template(template)
         messages = prompt.format_messages(context=context)
 
-        raw = self.call_llm(messages)
+        raw = self.call_llm(messages, max_tokens=128)
         subquestions = [q.strip() for q in raw.split("\n") if q.strip()]
         logger.debug("Generated %d subquestions", len(subquestions))
         return subquestions[:3]
@@ -527,7 +532,7 @@ Answer:"""
 
         prompt = ChatPromptTemplate.from_template(template)
         messages = prompt.format_messages(context=context, question=question)
-        return self.call_llm(messages)
+        return self.call_llm(messages, max_tokens=256)
 
     def predict_acuity_with_subanswers(
         self, context: str, subquestions: list[str], answers: list[str]
