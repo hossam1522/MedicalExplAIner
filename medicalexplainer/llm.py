@@ -55,6 +55,34 @@ API_MODELS: dict[str, dict] = {
 
 
 # ------------------------------------------------------------------
+# Ollama host resolution
+# ------------------------------------------------------------------
+
+_OLLAMA_DEFAULT_HOST = "localhost:11434"
+
+
+def _ollama_base_url() -> str:
+    """Return the Ollama base URL, honouring the ``OLLAMA_HOST`` env var.
+
+    Ollama itself reads ``OLLAMA_HOST`` to decide where to listen, so we
+    mirror that behaviour: if the variable is set we use it, otherwise we
+    fall back to ``localhost:11434``.
+
+    The value may or may not include a scheme; we always normalise to
+    ``http://host:port`` (Ollama does not support HTTPS natively).
+    """
+    raw = os.environ.get("OLLAMA_HOST", "").strip()
+    if not raw:
+        raw = _OLLAMA_DEFAULT_HOST
+    # Strip any scheme the user may have included
+    for prefix in ("http://", "https://"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):]
+    # raw is now "host:port" or just "host"
+    return f"http://{raw}"
+
+
+# ------------------------------------------------------------------
 # Ollama helpers
 # ------------------------------------------------------------------
 
@@ -62,7 +90,7 @@ API_MODELS: dict[str, dict] = {
 def is_ollama_available() -> bool:
     """Check whether the Ollama service is reachable."""
     try:
-        resp = requests.get("http://localhost:11434/api/tags", timeout=5)
+        resp = requests.get(f"{_ollama_base_url()}/api/tags", timeout=5)
         return resp.status_code == 200
     except requests.ConnectionError:
         return False
@@ -71,7 +99,7 @@ def is_ollama_available() -> bool:
 def ollama_model_exists(model_name: str) -> bool:
     """Check whether *model_name* is already pulled in Ollama."""
     try:
-        resp = requests.get("http://localhost:11434/api/tags", timeout=5)
+        resp = requests.get(f"{_ollama_base_url()}/api/tags", timeout=5)
         if resp.status_code == 200:
             models = resp.json().get("models", [])
             for m in models:
@@ -102,10 +130,13 @@ def ollama_pull(model_name: str) -> None:
 
 def ensure_ollama_model(model_name: str) -> None:
     """Make sure *model_name* is available in Ollama, pulling it if necessary."""
+    host = _ollama_base_url()
+    logger.debug("Using Ollama host: %s", host)
     if not is_ollama_available():
         raise RuntimeError(
-            "Ollama is not running.  Start it with 'ollama serve' or "
-            "'systemctl start ollama'."
+            f"Ollama is not reachable at {host}.  "
+            "Start it with 'ollama serve' or 'systemctl start ollama', "
+            "or set OLLAMA_HOST to the correct address."
         )
     if not ollama_model_exists(model_name):
         ollama_pull(model_name)
@@ -160,12 +191,14 @@ class Llm:
 
     def _init_ollama_model(self, name: str) -> None:
         ensure_ollama_model(name)
+        base_url = _ollama_base_url()
         self.llm = ChatOllama(
             model=name,
+            base_url=base_url,
             num_ctx=32768,
             temperature=0,
         )
-        logger.debug("Initialised Ollama model: %s", name)
+        logger.debug("Initialised Ollama model: %s (host: %s)", name, base_url)
 
     # ---- LLM calling -------------------------------------------------
 
@@ -220,7 +253,7 @@ class Llm:
         }
 
         resp = requests.post(
-            "http://localhost:11434/api/chat",
+            f"{_ollama_base_url()}/api/chat",
             json=payload,
             timeout=120,
         )
