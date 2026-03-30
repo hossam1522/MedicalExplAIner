@@ -212,28 +212,31 @@ class Llm:
     # ---- LLM calling -------------------------------------------------
 
     def _probe_reasoning(self, model_name: str) -> bool:
-        """Detect whether *model_name* is a reasoning model.
+        """Detect whether *model_name* is a reasoning (thinking) model.
 
-        Sends a minimal single-token request and checks whether Ollama returns
-        a non-empty ``message.thinking`` field.  The probe uses ``num_predict=1``
-        so it completes in under a second for standard models, while for
-        reasoning models the thinking field will be present even if content is
-        empty (the single token consumed belongs to the thinking chain).
+        Queries ``/api/show`` and checks for ``"thinking"`` in the model's
+        declared capabilities list.  This is instantaneous (no inference)
+        and reliable: Ollama sets the flag based on the model's architecture,
+        not on the content of any particular prompt.
         """
         try:
-            data = self._ollama_post(
-                [{"role": "user", "content": "1"}],
-                num_predict=1,
+            resp = requests.post(
+                f"{_ollama_base_url()}/api/show",
+                json={"model": model_name},
+                timeout=10,
             )
-            is_reasoning = bool(data.get("message", {}).get("thinking"))
+            resp.raise_for_status()
+            capabilities: list[str] = resp.json().get("capabilities", [])
+            is_reasoning = "thinking" in capabilities
             if is_reasoning:
                 logger.debug(
-                    "Model %s identified as reasoning model via probe.", model_name
+                    "Model %s has 'thinking' capability — treating as reasoning model.",
+                    model_name,
                 )
             return is_reasoning
         except Exception as exc:
             logger.warning(
-                "Could not probe reasoning capability for %s: %s. "
+                "Could not query capabilities for %s: %s. "
                 "Assuming standard model.",
                 model_name,
                 exc,
