@@ -280,7 +280,27 @@ class Llm:
             return False
 
     def call_llm(self, messages: list[BaseMessage]) -> str:
-        """Invoke the LLM and return the text response."""
+        """Invoke the LLM and return the text response.
+
+        For Ollama models this goes through the raw ``/api/chat`` endpoint so
+        that the ``think`` flag (and correct ``num_predict``) are respected.
+        For API models it falls back to the LangChain ``invoke`` path.
+        """
+        if not self.is_api_model:
+            ollama_messages = []
+            for m in messages:
+                role = "user"
+                if m.type == "system":
+                    role = "system"
+                elif m.type == "ai":
+                    role = "assistant"
+                ollama_messages.append({"role": role, "content": m.content})
+            # Always use num_predict=-1 for free-text calls so the model can
+            # finish its response.  The think flag controls whether the
+            # reasoning chain is included (reasoning models only).
+            data = self._ollama_post(ollama_messages, num_predict=-1)
+            return data.get("message", {}).get("content", "").strip()
+
         response = self.llm.invoke(messages)
         return response.content
 
