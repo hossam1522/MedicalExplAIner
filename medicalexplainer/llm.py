@@ -15,6 +15,8 @@ import os
 import subprocess
 import warnings
 
+import re
+
 import requests
 from dotenv import load_dotenv
 from langchain.prompts import ChatPromptTemplate
@@ -112,6 +114,14 @@ def ollama_model_exists(model_name: str) -> bool:
         return False
 
 
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\r|\x1b\[[0-9]+[GK]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences and carriage returns from *text*."""
+    return _ANSI_ESCAPE.sub("", text).strip()
+
+
 def ollama_pull(model_name: str) -> None:
     """Pull a model into Ollama (blocking)."""
     logger.info("Pulling Ollama model '%s' (this may take a while)...", model_name)
@@ -120,10 +130,18 @@ def ollama_pull(model_name: str) -> None:
         capture_output=True,
         text=True,
         check=False,
+        env={**os.environ, "OLLAMA_HOST": _ollama_base_url().removeprefix("http://")},
     )
     if result.returncode != 0:
+        raw_err = result.stderr + result.stdout
+        clean_err = _strip_ansi(raw_err)
+        # Extract the human-readable error line (starts with "Error:")
+        error_line = next(
+            (ln for ln in clean_err.splitlines() if ln.startswith("Error:")),
+            clean_err,
+        )
         raise RuntimeError(
-            f"Failed to pull Ollama model '{model_name}': {result.stderr.strip()}"
+            f"Failed to pull Ollama model '{model_name}': {error_line}"
         )
     logger.info("Successfully pulled model '%s'", model_name)
 
