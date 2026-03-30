@@ -5,6 +5,7 @@ Run with::
 
     python -m medicalexplainer --models <model1> [model2 ...] [--subtasks] [--limit N]
                                [--variables var1 var2 ...] [--data-dir DIR]
+                               [--no-think]
 """
 
 import argparse
@@ -71,6 +72,15 @@ def main() -> None:
         help=f"Directory containing MIMIC-IV-ED CSV files (default: {DATA_DIR})",
     )
 
+    parser.add_argument(
+        "--no-think",
+        action="store_true",
+        help=(
+            "Disable chain-of-thought thinking for reasoning models "
+            "(faster, less deliberate; no effect on standard models)"
+        ),
+    )
+
     args = parser.parse_args()
 
     # Validate variables
@@ -91,6 +101,8 @@ def main() -> None:
     )
     if args.limit is not None:
         logger.info("Limiting evaluation to %d records", args.limit)
+    think = not args.no_think
+    logger.info("Thinking enabled: %s", think)
 
     try:
         dataset = Dataset(
@@ -112,6 +124,7 @@ def main() -> None:
             dataset=dataset,
             use_subtasks=args.subtasks,
             limit=args.limit,
+            think=think,
         )
         logger.info("Evaluation complete! Results: %s", output_path)
     except Exception as exc:

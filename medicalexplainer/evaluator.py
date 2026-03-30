@@ -84,6 +84,7 @@ class Evaluator:
         *,
         use_subtasks: bool = False,
         limit: int | None = None,
+        think: bool = True,
     ) -> Path:
         """Run the evaluation pipeline and write results to a CSV.
 
@@ -92,6 +93,10 @@ class Evaluator:
             dataset: A loaded :class:`Dataset` instance.
             use_subtasks: Whether to decompose into sub-questions first.
             limit: Cap the number of patient records to evaluate.
+            think: Whether to enable thinking for reasoning models.
+                Set to ``False`` to skip the thinking chain and get faster
+                (but potentially less accurate) responses.  Has no effect
+                on standard models or API models.
 
         Returns:
             Path to the generated results CSV file.
@@ -155,7 +160,7 @@ class Evaluator:
                     # Update spinner label to show current model
                     progress.update(overall_task, model=model_name)
 
-                    llm = self._init_model_with_retry(model_name, use_subtasks)
+                    llm = self._init_model_with_retry(model_name, use_subtasks, think)
                     if llm is None:
                         logger.error(
                             "Could not initialise model %s, skipping.", model_name
@@ -199,12 +204,12 @@ class Evaluator:
 
     @staticmethod
     def _init_model_with_retry(
-        model_name: str, use_subtasks: bool
+        model_name: str, use_subtasks: bool, think: bool
     ) -> Llm | None:
         """Try to initialise a model, retrying on transient failures."""
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                return Llm(model_name, use_subtasks=use_subtasks)
+                return Llm(model_name, use_subtasks=use_subtasks, think=think)
             except Exception as exc:
                 logger.warning(
                     "Model init attempt %d/%d for '%s' failed: %s",

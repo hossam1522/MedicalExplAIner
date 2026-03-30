@@ -173,13 +173,22 @@ class Llm:
     model.
     """
 
-    def __init__(self, model_name: str, *, use_subtasks: bool = False) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        *,
+        use_subtasks: bool = False,
+        think: bool = True,
+    ) -> None:
         configure_logger(name="llm", filepath=LOG_PATH)
         load_dotenv()
 
         self.model = model_name
         self.use_subtasks = use_subtasks
         self.is_api_model = model_name in API_MODELS
+        # think=True → let the model reason (default); False → skip thinking chain.
+        # Only has effect on Ollama models that declare the 'thinking' capability.
+        self.think = think
 
         if self.is_api_model:
             self._init_api_model(model_name)
@@ -222,9 +231,18 @@ class Llm:
         # surfaces it in message.thinking.  We store the flag so every
         # subsequent call uses the right num_predict without a wasted probe.
         self.is_reasoning_model = self._probe_reasoning(name)
+        # If the model supports thinking but the user disabled it, log clearly.
+        if self.is_reasoning_model and not self.think:
+            logger.info(
+                "Model %s: thinking disabled (think=False). "
+                "Responses will be faster but less deliberate.",
+                name,
+            )
         kind = "reasoning" if self.is_reasoning_model else "standard"
+        think_tag = f", think={'on' if self.think else 'off'}" if self.is_reasoning_model else ""
         logger.debug(
-            "Initialised Ollama model: %s (%s, host: %s)", name, kind, base_url
+            "Initialised Ollama model: %s (%s%s, host: %s)",
+            name, kind, think_tag, base_url,
         )
 
     # ---- LLM calling -------------------------------------------------
@@ -294,9 +312,12 @@ class Llm:
 
         * **Standard models** – ``num_predict=1`` so Ollama emits exactly one
           token (the acuity digit) with its logprobs.
-        * **Reasoning models** – ``num_predict=-1`` (no limit) so the thinking
-          chain completes and the visible answer appears in ``content``.
-          Logprobs are extracted from the last token in the response list.
+        * **Reasoning models with think=True** – ``num_predict=-1`` (no limit)
+          so the thinking chain completes and the visible answer appears in
+          ``content``.  Logprobs are extracted from the last token in the list.
+        * **Reasoning models with think=False** – Ollama's ``think: false``
+          parameter skips the chain entirely; the model answers directly like a
+          standard model, so ``num_predict=1`` works again.
         """
         ollama_messages = []
         for m in messages:
@@ -307,11 +328,14 @@ class Llm:
                 role = "assistant"
             ollama_messages.append({"role": role, "content": m.content})
 
-        num_predict = -1 if self.is_reasoning_model else 1
+        # When thinking is disabled the model behaves like a standard model:
+        # it emits the answer token directly, so num_predict=1 is sufficient.
+        use_reasoning_mode = self.is_reasoning_model and self.think
+        num_predict = -1 if use_reasoning_mode else 1
         data = self._ollama_post(ollama_messages, num_predict=num_predict)
 
         text = data.get("message", {}).get("content", "").strip()
-        logprobs_dict = self._extract_logprobs(data, reasoning=self.is_reasoning_model)
+        logprobs_dict = self._extract_logprobs(data, reasoning=use_reasoning_mode)
 
         prob_dict: dict[str, float] = {
             k: math.exp(lp) if lp != float("-inf") else 0.0
@@ -342,6 +366,9 @@ class Llm:
             "logprobs": True,
             "top_logprobs": 20,  # 20 to capture all digit alternatives 1-5
         }
+        # Pass think flag only for reasoning models; ignored by standard models.
+        if self.is_reasoning_model:
+            payload["think"] = self.think
         resp = requests.post(
             f"{_ollama_base_url()}/api/chat",
             json=payload,

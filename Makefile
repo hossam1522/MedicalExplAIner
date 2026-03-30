@@ -1,4 +1,4 @@
-.PHONY: help check install test install-uv run run-nodiv dev clean download-demo-data
+.PHONY: help check install test install-uv run run-nodiv run-nothink run-nodiv-nothink dev clean download-demo-data
 
 help:
 	@echo "Usage: make [target]"
@@ -9,8 +9,10 @@ help:
 	@echo "  install                                 Install the package and its dependencies"
 	@echo "  test                                    Run the test suite"
 	@echo "  download-demo-data                      Download MIMIC-IV-ED demo CSV files"
-	@echo "  run MODELS='model1 model2 ...'          Run evaluation with subtasks"
-	@echo "  run-nodiv MODELS='model1 model2 ...'    Run evaluation without subtasks"
+	@echo "  run MODELS='model1 model2 ...'               Run evaluation with subtasks"
+	@echo "  run-nodiv MODELS='model1 model2 ...'         Run evaluation without subtasks"
+	@echo "  run-nothink MODELS='model1 model2 ...'       Run with subtasks, thinking disabled"
+	@echo "  run-nodiv-nothink MODELS='model1 model2 ...' Run without subtasks, thinking disabled"
 	@echo "  dev                                     Create a development virtual environment"
 	@echo "  clean                                   Remove build artifacts and caches"
 	@echo "  check                                   Check source files for syntax errors"
@@ -46,6 +48,14 @@ run:
 run-nodiv:
 	uv run python -m medicalexplainer \
 		--models $(MODELS)
+
+run-nothink:
+	uv run python -m medicalexplainer \
+		--models $(MODELS) --subtasks --no-think
+
+run-nodiv-nothink:
+	uv run python -m medicalexplainer \
+		--models $(MODELS) --no-think
 
 dev:
 	uv venv .venv
