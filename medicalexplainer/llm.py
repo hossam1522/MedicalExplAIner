@@ -229,7 +229,20 @@ class Llm:
     def _ollama_chat_with_logprobs(
         self, messages: list[BaseMessage]
     ) -> tuple[str, dict[str, float]]:
-        """Call Ollama's ``/api/chat`` endpoint with ``logprobs=True``."""
+        """Call Ollama's ``/api/chat`` endpoint with ``logprobs=True``.
+
+        Handles two model families:
+
+        * **Standard models** – respond in a single token when
+          ``num_predict=1``; logprobs come back as ``top_logprobs`` (list of
+          dicts) at the top level of the response.
+        * **Reasoning models** (e.g. DeepSeek-R1, gpt-oss) – produce a hidden
+          ``<think>…</think>`` chain before the visible answer.  Ollama surfaces
+          this in ``message.thinking``.  With ``num_predict=1`` these models
+          emit only one internal thinking token and leave ``content`` empty, so
+          we must let them run freely (``num_predict=-1``) and then look for the
+          acuity digit in the *last* token of the ``logprobs`` list.
+        """
         ollama_messages = []
         for m in messages:
             role = "user"
@@ -239,48 +252,28 @@ class Llm:
                 role = "assistant"
             ollama_messages.append({"role": role, "content": m.content})
 
-        payload = {
-            "model": self.model,
-            "messages": ollama_messages,
-            "stream": False,
-            "options": {
-                "temperature": 0,
-                "num_ctx": 32768,
-                "num_predict": 1,
-            },
-            "logprobs": True,
-            "top_logprobs": 10,
-        }
+        # First attempt: standard single-token prediction
+        data = self._ollama_post(ollama_messages, num_predict=1)
 
-        resp = requests.post(
-            f"{_ollama_base_url()}/api/chat",
-            json=payload,
-            timeout=120,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
+        is_reasoning = bool(data.get("message", {}).get("thinking"))
         text = data.get("message", {}).get("content", "").strip()
 
-        # Extract logprobs for tokens "1" through "5"
-        logprobs_dict: dict[str, float] = {
-            str(i): float("-inf") for i in range(1, 6)
+        if is_reasoning or not text:
+            # Reasoning model or empty content: run without token limit
+            logger.debug(
+                "Model %s detected as reasoning model or returned empty content; "
+                "retrying without num_predict limit.",
+                self.model,
+            )
+            data = self._ollama_post(ollama_messages, num_predict=-1)
+            text = data.get("message", {}).get("content", "").strip()
+
+        logprobs_dict = self._extract_logprobs(data, reasoning=is_reasoning)
+
+        prob_dict: dict[str, float] = {
+            k: math.exp(lp) if lp != float("-inf") else 0.0
+            for k, lp in logprobs_dict.items()
         }
-
-        # Ollama returns top_logprobs in the response
-        top_logprobs = data.get("top_logprobs", [])
-        if top_logprobs and len(top_logprobs) > 0:
-            first_token_probs = top_logprobs[0]  # dict token -> logprob
-            for token, logprob in first_token_probs.items():
-                clean = token.strip()
-                if clean in logprobs_dict:
-                    logprobs_dict[clean] = logprob
-
-        # Also convert to probabilities for logging
-        prob_dict: dict[str, float] = {}
-        for token, lp in logprobs_dict.items():
-            prob_dict[token] = math.exp(lp) if lp != float("-inf") else 0.0
-
         logger.debug(
             "Model %s logprobs: %s, probabilities: %s",
             self.model,
@@ -289,6 +282,82 @@ class Llm:
         )
 
         return text, logprobs_dict
+
+    def _ollama_post(
+        self, ollama_messages: list[dict], *, num_predict: int
+    ) -> dict:
+        """Send a single request to ``/api/chat`` and return the parsed JSON."""
+        payload: dict = {
+            "model": self.model,
+            "messages": ollama_messages,
+            "stream": False,
+            "options": {
+                "temperature": 0,
+                "num_ctx": 32768,
+                "num_predict": num_predict,
+            },
+            "logprobs": True,
+            "top_logprobs": 10,
+        }
+        resp = requests.post(
+            f"{_ollama_base_url()}/api/chat",
+            json=payload,
+            timeout=300,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    @staticmethod
+    def _extract_logprobs(data: dict, *, reasoning: bool) -> dict[str, float]:
+        """Extract per-acuity-level logprobs from an Ollama response.
+
+        Ollama's ``logprobs`` field is a list of per-token objects::
+
+            [{"token": "3", "logprob": -0.01, "top_logprobs": [...]}, ...]
+
+        For standard models with ``num_predict=1`` the list has a single entry
+        and we read ``top_logprobs`` from it.
+
+        For reasoning models the list covers all thinking + content tokens; the
+        acuity digit is the *last* token in ``content``, so we scan from the
+        end of the list for the first entry whose ``token`` is one of 1-5.
+        """
+        logprobs_dict: dict[str, float] = {
+            str(i): float("-inf") for i in range(1, 6)
+        }
+        acuity_tokens = set(logprobs_dict.keys())
+
+        # Ollama ≥0.6 wraps logprobs as a top-level list of token objects
+        token_list: list[dict] = data.get("logprobs", [])
+
+        if not token_list:
+            # Older Ollama format: top_logprobs is a list of dicts (one per
+            # predicted token) where each dict maps token→logprob.
+            legacy = data.get("top_logprobs", [])
+            if legacy:
+                first = legacy[0] if not reasoning else legacy[-1]
+                for token, lp in first.items():
+                    clean = token.strip()
+                    if clean in acuity_tokens:
+                        logprobs_dict[clean] = lp
+            return logprobs_dict
+
+        # New format: iterate from the end to find the acuity token
+        search_order = reversed(token_list) if reasoning else token_list[:1]
+        for token_obj in search_order:
+            tok = token_obj.get("token", "").strip()
+            if tok in acuity_tokens:
+                # Found the acuity token; record it plus alternatives
+                logprobs_dict[tok] = token_obj.get("logprob", float("-inf"))
+                for alt in token_obj.get("top_logprobs", []):
+                    alt_tok = alt.get("token", "").strip()
+                    if alt_tok in acuity_tokens:
+                        logprobs_dict[alt_tok] = alt.get(
+                            "logprob", float("-inf")
+                        )
+                break  # stop after finding the answer token
+
+        return logprobs_dict
 
     # ---- Prompt methods ----------------------------------------------
 
