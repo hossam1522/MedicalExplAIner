@@ -196,7 +196,45 @@ class Evaluator:
                         progress.advance(overall_task, 1)
 
         logger.info("Results written to %s", output_path)
+        self._print_summary(output_path)
         return output_path
+
+    @staticmethod
+    def _print_summary(output_path: Path) -> None:
+        """Print a per-model accuracy summary table to the console."""
+        import collections
+
+        with open(output_path, newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+
+        if not rows:
+            return
+
+        by_model: dict[str, list[bool]] = collections.defaultdict(list)
+        for r in rows:
+            by_model[r["model"]].append(r["correct"] == "True")
+
+        table = Table(title="Evaluation Summary", show_lines=True)
+        table.add_column("Model", style="bold cyan", no_wrap=True)
+        table.add_column("Correct", justify="right")
+        table.add_column("Total", justify="right")
+        table.add_column("Accuracy", justify="right")
+
+        for model, results in by_model.items():
+            correct = sum(results)
+            total = len(results)
+            acc = correct / total * 100
+            color = "green" if acc >= 60 else "yellow" if acc >= 40 else "red"
+            table.add_row(
+                model,
+                str(correct),
+                str(total),
+                f"[{color}]{acc:.1f}%[/{color}]",
+            )
+
+        _console.print()
+        _console.print(table)
+        _console.print(f"[dim]Results saved to: {output_path}[/dim]")
 
     # ------------------------------------------------------------------
     # Internal helpers
