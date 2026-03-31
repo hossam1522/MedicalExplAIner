@@ -459,6 +459,34 @@ class Llm:
 
     # ---- Prompt methods ----------------------------------------------
 
+    # ESI v4 decision algorithm embedded in all prompts.  Defined once here
+    # so every method uses identical, authoritative wording.
+    _ESI_ALGORITHM = """\
+Apply the ESI v4 algorithm in strict order:
+
+STEP 1 — ESI 1 (Immediate): Does the patient require immediate life-saving intervention RIGHT NOW?
+  Yes → ESI 1.  Indicators: cardiac/respiratory arrest, apnea, unresponsiveness, no palpable pulse,
+  severe respiratory distress, SpO2 < 80%, BP < 70 mmHg systolic with signs of shock,
+  active seizure with no recovery, uncontrolled major haemorrhage.
+
+STEP 2 — ESI 2 (Emergent): Is this a high-risk situation, or does the patient have altered mental
+  status or severe pain/distress?
+  Yes → ESI 2.  Indicators (any ONE suffices):
+  • High-risk chief complaint: chest pain (possible ACS), stroke symptoms, severe dyspnoea,
+    anaphylaxis, sepsis (suspected), altered mental status / confusion / lethargy / agitation,
+    major trauma.
+  • Severe pain: pain score ≥ 7/10.
+  • Dangerous vital signs (even if not yet ESI 1): HR > 120 or < 50, RR > 24 or < 8,
+    SpO2 < 92%, SBP < 90 mmHg, temperature > 40 °C or < 35 °C.
+
+STEP 3 — ESI 3, 4, or 5 (Stable): How many DISTINCT resource categories will this patient need?
+  Resources = labs, IV/IM medications, imaging (X-ray, CT, US, MRI), IV fluids, specialist consult,
+  simple procedure (sutures, splint, catheter).
+  NOT resources = oral medications, prescriptions, phone referrals, simple wound dressings.
+  • ≥ 2 resource categories needed → ESI 3
+  •   1 resource category needed → ESI 4
+  •   0 resources needed         → ESI 5"""
+
     def predict_acuity(self, context: str) -> tuple[str, dict[str, float]]:
         """Ask the LLM to predict the triage acuity level (1-5).
 
@@ -466,19 +494,17 @@ class Llm:
             (predicted_acuity, logprobs_dict) where predicted_acuity is a
             string "1"-"5" and logprobs_dict maps "1"-"5" to log-probabilities.
         """
-        template = """You are an emergency medicine specialist. Based on the following patient information from an Emergency Department visit, predict the triage acuity level.
+        template = """You are a board-certified emergency medicine physician performing triage.
 
-The Emergency Severity Index (ESI) triage acuity scale is:
-1 = Resuscitation (most severe, life-threatening)
-2 = Emergent (high risk, severe pain, or altered mental status)
-3 = Urgent (stable but needs multiple resources)
-4 = Less urgent (needs one resource)
-5 = Non-urgent (no resources needed)
+{esi_algorithm}
 
 Patient information:
-{context}
+{{context}}
 
-Based on this information, what is the triage acuity level? Respond with ONLY a single number from 1 to 5."""
+Following the ESI v4 algorithm above, what is the triage acuity level for this patient?
+Respond with ONLY a single digit: 1, 2, 3, 4, or 5.""".format(
+            esi_algorithm=self._ESI_ALGORITHM
+        )
 
         prompt = ChatPromptTemplate.from_template(template)
         messages = prompt.format_messages(context=context)
@@ -495,14 +521,19 @@ Based on this information, what is the triage acuity level? Respond with ONLY a 
         Returns:
             A list of up to 3 sub-questions.
         """
-        template = """You are an emergency medicine specialist. You need to assess the triage acuity level (1-5) for a patient. Before making your prediction, generate up to 3 specific sub-questions that would help you determine the severity.
+        template = """You are a board-certified emergency medicine physician performing triage using the ESI v4 algorithm.
 
-The sub-questions should focus on aspects of the patient data that are most relevant for determining acuity.
+{esi_algorithm}
+
+Given the patient information below, generate up to 3 focused questions whose answers would help you decide between ESI levels (e.g. is this ESI 1 vs 2? ESI 2 vs 3? How many resources will be needed?).
+Target the decision points in the algorithm that are most uncertain given what you already know.
 
 Patient information:
-{context}
+{{context}}
 
-Generate up to 3 sub-questions. Output ONLY the sub-questions, one per line."""
+Output ONLY the questions, one per line. No numbering, no explanations.""".format(
+            esi_algorithm=self._ESI_ALGORITHM
+        )
 
         prompt = ChatPromptTemplate.from_template(template)
         messages = prompt.format_messages(context=context)
@@ -552,22 +583,21 @@ Answer:"""
             f"Q: {q}\nA: {a}" for q, a in zip(subquestions, answers)
         )
 
-        template = """You are an emergency medicine specialist. Based on the patient information and the analysis below, predict the triage acuity level.
+        template = """You are a board-certified emergency medicine physician performing triage.
 
-The Emergency Severity Index (ESI) triage acuity scale is:
-1 = Resuscitation (most severe, life-threatening)
-2 = Emergent (high risk, severe pain, or altered mental status)
-3 = Urgent (stable but needs multiple resources)
-4 = Less urgent (needs one resource)
-5 = Non-urgent (no resources needed)
+{esi_algorithm}
 
 Patient information:
-{context}
+{{context}}
 
-Clinical analysis:
-{qa_pairs}
+Clinical analysis (answers to targeted ESI decision-point questions):
+{{qa_pairs}}
 
-Based on all this information, what is the triage acuity level? Respond with ONLY a single number from 1 to 5."""
+Applying the ESI v4 algorithm to the patient information and the clinical analysis above,
+what is the triage acuity level?
+Respond with ONLY a single digit: 1, 2, 3, 4, or 5.""".format(
+            esi_algorithm=self._ESI_ALGORITHM
+        )
 
         prompt = ChatPromptTemplate.from_template(template)
         messages = prompt.format_messages(context=context, qa_pairs=qa_pairs)
