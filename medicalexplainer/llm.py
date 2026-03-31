@@ -337,21 +337,15 @@ class Llm:
 
         * **Standard models** – ``num_predict=1`` so Ollama emits exactly one
           token (the acuity digit) with its logprobs.
-        * **Reasoning models (think=True or think=False)** – ``num_predict=-1``
-          (no limit) so the full response is generated.  Even with
-          ``think=False``, reasoning models like DeepSeek-R1 still produce a
-          free-text answer (e.g. "The triage level is 3") rather than a bare
-          digit, so we must let generation run to completion and extract the
-          digit from the content afterwards.
-
-        Logprob extraction:
-
-        * ``think=True``: the token list contains thinking tokens followed by
-          content tokens; we read the **last** token (the acuity digit).
-        * ``think=False``: no thinking chain; the acuity digit is the **last**
-          token of the (short) free-text answer.  We still use
-          ``reasoning=True`` for ``_extract_logprobs`` so it reads the last
-          token, which is always the digit in both cases.
+        * **Reasoning models, think=True** – ``num_predict=-1`` (no limit) so
+          the thinking chain runs to completion; the acuity digit appears in
+          ``content`` and logprobs are read from the last content token.
+        * **Reasoning models, think=False** – ``num_predict=-1`` as well.
+          Even with thinking disabled, DeepSeek-R1 and similar models may
+          still generate verbose free-text before the digit (e.g. "The triage
+          level is 3").  We let generation complete and extract the digit from
+          the content with ``_parse_acuity``; logprobs are read from the last
+          token in the list (which is always the acuity digit).
         """
         ollama_messages = []
         for m in messages:
@@ -362,16 +356,18 @@ class Llm:
                 role = "assistant"
             ollama_messages.append({"role": role, "content": m.content})
 
-        # Reasoning models always need full generation regardless of think flag:
-        # with think=True  → thinking chain + answer
-        # with think=False → free-text answer (not a bare digit)
-        # Standard models can stop after a single token.
-        use_reasoning_mode = self.is_reasoning_model
-        num_predict = -1 if use_reasoning_mode else 1
+        # Reasoning models always need full generation: thinking chain (think=True)
+        # or verbose free-text answer (think=False).  Standard models stop at 1 token.
+        use_thinking = self.is_reasoning_model and self.think
+        num_predict = -1 if self.is_reasoning_model else 1
         data = self._ollama_post(ollama_messages, num_predict=num_predict)
 
         text = data.get("message", {}).get("content", "").strip()
-        logprobs_dict = self._extract_logprobs(data, reasoning=use_reasoning_mode)
+        # For reasoning models the acuity digit is always the last token;
+        # for standard models it is the first (and only) token.
+        logprobs_dict = self._extract_logprobs(
+            data, reasoning=self.is_reasoning_model
+        )
 
         prob_dict: dict[str, float] = {
             k: math.exp(lp) if lp != float("-inf") else 0.0
@@ -422,14 +418,13 @@ class Llm:
 
             [{"token": "3", "logprob": -0.01, "top_logprobs": [...]}, ...]
 
-        For **standard models** (``num_predict=1``) the list has a single entry
-        and we read ``top_logprobs`` from it (``reasoning=False``).
+        ``reasoning=False`` (standard models and reasoning models with
+        ``think=False`` + prefill + stop): the acuity digit is ``token_list[0]``
+        — the first (and only significant) token.
 
-        For **reasoning models** (``reasoning=True``, whether ``think`` is on or
-        off) the list covers all generated tokens.  The acuity digit is always
-        the *last* token (Ollama appends content tokens after thinking tokens,
-        and even without thinking the answer ends with the digit).  We read
-        ``top_logprobs`` from that last entry.
+        ``reasoning=True`` (reasoning models with ``think=True``): the token
+        list covers all thinking + content tokens; the acuity digit is the
+        *last* token.
 
         ``top_logprobs=20`` is used in the request to ensure that all five
         acuity digits appear as alternatives even when the top choice is very
