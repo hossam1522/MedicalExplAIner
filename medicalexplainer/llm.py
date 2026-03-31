@@ -337,12 +337,21 @@ class Llm:
 
         * **Standard models** – ``num_predict=1`` so Ollama emits exactly one
           token (the acuity digit) with its logprobs.
-        * **Reasoning models with think=True** – ``num_predict=-1`` (no limit)
-          so the thinking chain completes and the visible answer appears in
-          ``content``.  Logprobs are extracted from the last token in the list.
-        * **Reasoning models with think=False** – Ollama's ``think: false``
-          parameter skips the chain entirely; the model answers directly like a
-          standard model, so ``num_predict=1`` works again.
+        * **Reasoning models (think=True or think=False)** – ``num_predict=-1``
+          (no limit) so the full response is generated.  Even with
+          ``think=False``, reasoning models like DeepSeek-R1 still produce a
+          free-text answer (e.g. "The triage level is 3") rather than a bare
+          digit, so we must let generation run to completion and extract the
+          digit from the content afterwards.
+
+        Logprob extraction:
+
+        * ``think=True``: the token list contains thinking tokens followed by
+          content tokens; we read the **last** token (the acuity digit).
+        * ``think=False``: no thinking chain; the acuity digit is the **last**
+          token of the (short) free-text answer.  We still use
+          ``reasoning=True`` for ``_extract_logprobs`` so it reads the last
+          token, which is always the digit in both cases.
         """
         ollama_messages = []
         for m in messages:
@@ -353,9 +362,11 @@ class Llm:
                 role = "assistant"
             ollama_messages.append({"role": role, "content": m.content})
 
-        # When thinking is disabled the model behaves like a standard model:
-        # it emits the answer token directly, so num_predict=1 is sufficient.
-        use_reasoning_mode = self.is_reasoning_model and self.think
+        # Reasoning models always need full generation regardless of think flag:
+        # with think=True  → thinking chain + answer
+        # with think=False → free-text answer (not a bare digit)
+        # Standard models can stop after a single token.
+        use_reasoning_mode = self.is_reasoning_model
         num_predict = -1 if use_reasoning_mode else 1
         data = self._ollama_post(ollama_messages, num_predict=num_predict)
 
@@ -412,12 +423,13 @@ class Llm:
             [{"token": "3", "logprob": -0.01, "top_logprobs": [...]}, ...]
 
         For **standard models** (``num_predict=1``) the list has a single entry
-        and we read ``top_logprobs`` from it.
+        and we read ``top_logprobs`` from it (``reasoning=False``).
 
-        For **reasoning models** the list covers all thinking + content tokens.
-        The acuity digit is the *last* token in the list (Ollama appends content
-        tokens after thinking tokens).  We read the ``top_logprobs`` from that
-        last entry to get alternatives for 1-5.
+        For **reasoning models** (``reasoning=True``, whether ``think`` is on or
+        off) the list covers all generated tokens.  The acuity digit is always
+        the *last* token (Ollama appends content tokens after thinking tokens,
+        and even without thinking the answer ends with the digit).  We read
+        ``top_logprobs`` from that last entry.
 
         ``top_logprobs=20`` is used in the request to ensure that all five
         acuity digits appear as alternatives even when the top choice is very
