@@ -1,9 +1,10 @@
 """
-llm - LLM wrapper with dynamic Ollama model support.
+llm - LLM wrapper with dynamic vLLM model support.
 
-Provides a single :class:`Llm` class that works with any Ollama model
-without requiring code changes.  Ollama models are automatically pulled
-if not already available locally.
+Provides a single :class:`Llm` class that talks to a vLLM server through its
+OpenAI-compatible HTTP API (``/v1/chat/completions``).  Any model name not
+present in :data:`API_MODELS` is treated as a model served by vLLM; the name
+must match what the server was launched with (``vllm serve <model>``).
 
 Google API models (Gemini, Gemma) are also supported via explicit
 registration in :data:`API_MODELS`.
@@ -12,17 +13,13 @@ registration in :data:`API_MODELS`.
 import logging
 import math
 import os
-import subprocess
 import warnings
 
-import re
-
-import requests
 from dotenv import load_dotenv
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import BaseMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
+from openai import OpenAI
 
 from medicalexplainer.logger import configure_logger
 from medicalexplainer.paths import LOG_PATH
@@ -57,107 +54,33 @@ API_MODELS: dict[str, dict] = {
 
 
 # ------------------------------------------------------------------
-# Ollama host resolution
+# vLLM endpoint resolution
 # ------------------------------------------------------------------
 
-_OLLAMA_DEFAULT_HOST = "localhost:11434"
+_VLLM_DEFAULT_BASE_URL = "http://localhost:8000/v1"
 
 
-def _ollama_base_url() -> str:
-    """Return the Ollama base URL, honouring the ``OLLAMA_HOST`` env var.
+def _vllm_base_url() -> str:
+    """Return the vLLM OpenAI-compatible base URL.
 
-    Ollama itself reads ``OLLAMA_HOST`` to decide where to listen, so we
-    mirror that behaviour: if the variable is set we use it, otherwise we
-    fall back to ``localhost:11434``.
-
-    The value may or may not include a scheme; we always normalise to
-    ``http://host:port`` (Ollama does not support HTTPS natively).
+    Honours ``VLLM_BASE_URL`` (e.g. ``http://gpu-server:8000/v1``).  If the
+    value omits the ``/v1`` suffix it is appended, so ``http://host:8000`` and
+    ``http://host:8000/v1`` are both accepted.
     """
-    raw = os.environ.get("OLLAMA_HOST", "").strip()
+    raw = os.environ.get("VLLM_BASE_URL", "").strip()
     if not raw:
-        raw = _OLLAMA_DEFAULT_HOST
-    # Strip any scheme the user may have included
-    for prefix in ("http://", "https://"):
-        if raw.startswith(prefix):
-            raw = raw[len(prefix):]
-    # raw is now "host:port" or just "host"
-    return f"http://{raw}"
+        raw = _VLLM_DEFAULT_BASE_URL
+    if not raw.startswith(("http://", "https://")):
+        raw = f"http://{raw}"
+    raw = raw.rstrip("/")
+    if not raw.endswith("/v1"):
+        raw = f"{raw}/v1"
+    return raw
 
 
-# ------------------------------------------------------------------
-# Ollama helpers
-# ------------------------------------------------------------------
-
-
-def is_ollama_available() -> bool:
-    """Check whether the Ollama service is reachable."""
-    try:
-        resp = requests.get(f"{_ollama_base_url()}/api/tags", timeout=5)
-        return resp.status_code == 200
-    except requests.ConnectionError:
-        return False
-
-
-def ollama_model_exists(model_name: str) -> bool:
-    """Check whether *model_name* is already pulled in Ollama."""
-    try:
-        resp = requests.get(f"{_ollama_base_url()}/api/tags", timeout=5)
-        if resp.status_code == 200:
-            models = resp.json().get("models", [])
-            for m in models:
-                # Ollama reports names like "llama3.1:latest"
-                name = m.get("name", "")
-                if name == model_name or name.startswith(f"{model_name}:"):
-                    return True
-        return False
-    except requests.ConnectionError:
-        return False
-
-
-_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\r|\x1b\[[0-9]+[GK]")
-
-
-def _strip_ansi(text: str) -> str:
-    """Remove ANSI escape sequences and carriage returns from *text*."""
-    return _ANSI_ESCAPE.sub("", text).strip()
-
-
-def ollama_pull(model_name: str) -> None:
-    """Pull a model into Ollama (blocking)."""
-    logger.info("Pulling Ollama model '%s' (this may take a while)...", model_name)
-    result = subprocess.run(
-        ["ollama", "pull", model_name],
-        capture_output=True,
-        text=True,
-        check=False,
-        env={**os.environ, "OLLAMA_HOST": _ollama_base_url().removeprefix("http://")},
-    )
-    if result.returncode != 0:
-        raw_err = result.stderr + result.stdout
-        clean_err = _strip_ansi(raw_err)
-        # Extract the human-readable error line (starts with "Error:")
-        error_line = next(
-            (ln for ln in clean_err.splitlines() if ln.startswith("Error:")),
-            clean_err,
-        )
-        raise RuntimeError(
-            f"Failed to pull Ollama model '{model_name}': {error_line}"
-        )
-    logger.info("Successfully pulled model '%s'", model_name)
-
-
-def ensure_ollama_model(model_name: str) -> None:
-    """Make sure *model_name* is available in Ollama, pulling it if necessary."""
-    host = _ollama_base_url()
-    logger.debug("Using Ollama host: %s", host)
-    if not is_ollama_available():
-        raise RuntimeError(
-            f"Ollama is not reachable at {host}.  "
-            "Start it with 'ollama serve' or 'systemctl start ollama', "
-            "or set OLLAMA_HOST to the correct address."
-        )
-    if not ollama_model_exists(model_name):
-        ollama_pull(model_name)
+def _vllm_api_key() -> str:
+    """API key for the vLLM server (vLLM ignores it unless started with one)."""
+    return os.environ.get("VLLM_API_KEY", "EMPTY") or "EMPTY"
 
 
 # ------------------------------------------------------------------
@@ -166,11 +89,10 @@ def ensure_ollama_model(model_name: str) -> None:
 
 
 class Llm:
-    """Unified LLM wrapper for both Ollama and Google API models.
+    """Unified LLM wrapper for both vLLM and Google API models.
 
-    For Ollama models, instantiation will auto-pull the model if needed.
-    Any model name not present in :data:`API_MODELS` is treated as an Ollama
-    model.
+    Any model name not present in :data:`API_MODELS` is treated as a model
+    served by a vLLM instance reachable at :func:`_vllm_base_url`.
     """
 
     def __init__(
@@ -186,14 +108,15 @@ class Llm:
         self.model = model_name
         self.use_subtasks = use_subtasks
         self.is_api_model = model_name in API_MODELS
-        # think=True → let the model reason (default); False → skip thinking chain.
-        # Only has effect on Ollama models that declare the 'thinking' capability.
+        # think=True → let the model reason (default); False → disable thinking.
+        # Only affects vLLM models whose chat template honours enable_thinking
+        # (e.g. Qwen3).  Ignored by everything else.
         self.think = think
 
         if self.is_api_model:
             self._init_api_model(model_name)
         else:
-            self._init_ollama_model(model_name)
+            self._init_vllm_model(model_name)
 
     # ---- initialisers ------------------------------------------------
 
@@ -214,110 +137,88 @@ class Llm:
             kwargs["top_k"] = cfg["top_k"]
 
         self.llm = ChatGoogleGenerativeAI(**kwargs)
-        self.is_reasoning_model = False
         logger.debug("Initialised Google API model: %s", name)
 
-    def _init_ollama_model(self, name: str) -> None:
-        ensure_ollama_model(name)
-        base_url = _ollama_base_url()
-        self.llm = ChatOllama(
-            model=name,
-            base_url=base_url,
-            num_ctx=4096,
-            temperature=0,
-        )
-        # Probe once to detect reasoning models (e.g. DeepSeek-R1, gpt-oss).
-        # These produce a hidden <think> chain before the visible answer; Ollama
-        # surfaces it in message.thinking.  We store the flag so every
-        # subsequent call uses the right num_predict without a wasted probe.
-        self.is_reasoning_model = self._probe_reasoning(name)
-        # If the model supports thinking but the user disabled it, log clearly.
-        if self.is_reasoning_model and not self.think:
-            logger.info(
-                "Model %s: thinking disabled (think=False). "
-                "Responses will be faster but less deliberate.",
-                name,
-            )
-        kind = "reasoning" if self.is_reasoning_model else "standard"
-        think_tag = f", think={'on' if self.think else 'off'}" if self.is_reasoning_model else ""
+    def _init_vllm_model(self, name: str) -> None:
+        base_url = _vllm_base_url()
+        self.client = OpenAI(base_url=base_url, api_key=_vllm_api_key())
+        self._check_served(name, base_url)
         logger.debug(
-            "Initialised Ollama model: %s (%s%s, host: %s)",
-            name, kind, think_tag, base_url,
+            "Initialised vLLM model: %s (think=%s, base_url: %s)",
+            name, self.think, base_url,
         )
+
+    def _check_served(self, name: str, base_url: str) -> None:
+        """Verify the vLLM server is reachable and serving *name*."""
+        try:
+            served = [m.id for m in self.client.models.list().data]
+        except Exception as exc:
+            raise RuntimeError(
+                f"vLLM server not reachable at {base_url}. "
+                "Start it with 'vllm serve <model>', or set VLLM_BASE_URL "
+                f"to the correct address. ({exc})"
+            ) from exc
+        if served and name not in served:
+            logger.warning(
+                "Model %r is not in the vLLM served list %s. "
+                "Requests will fail unless the server was launched with this "
+                "model (or an alias for it).",
+                name, served,
+            )
 
     # ---- LLM calling -------------------------------------------------
 
-    def _probe_reasoning(self, model_name: str) -> bool:
-        """Detect whether *model_name* is a reasoning (thinking) model.
+    @staticmethod
+    def _to_openai_messages(messages: list[BaseMessage]) -> list[dict]:
+        """Convert LangChain messages to OpenAI chat message dicts."""
+        role_map = {"system": "system", "ai": "assistant"}
+        return [
+            {"role": role_map.get(m.type, "user"), "content": m.content}
+            for m in messages
+        ]
 
-        Queries ``/api/show`` and checks for ``"thinking"`` in the model's
-        declared capabilities list.  This is instantaneous (no inference)
-        and reliable: Ollama sets the flag based on the model's architecture,
-        not on the content of any particular prompt.
+    def _extra_body(self) -> dict | None:
+        """vLLM-specific request extras.
+
+        Only emitted when thinking is explicitly disabled, so the default path
+        (think=True / standard models) sends a vanilla OpenAI request that any
+        server accepts.  ``enable_thinking`` is honoured by reasoning chat
+        templates (Qwen3) and ignored otherwise.
         """
-        try:
-            resp = requests.post(
-                f"{_ollama_base_url()}/api/show",
-                json={"model": model_name},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            capabilities: list[str] = resp.json().get("capabilities", [])
-            is_reasoning = "thinking" in capabilities
-            if is_reasoning:
-                logger.debug(
-                    "Model %s has 'thinking' capability — treating as reasoning model.",
-                    model_name,
-                )
-            return is_reasoning
-        except Exception as exc:
-            logger.warning(
-                "Could not query capabilities for %s: %s. "
-                "Assuming standard model.",
-                model_name,
-                exc,
-            )
-            return False
+        if self.think:
+            return None
+        return {"chat_template_kwargs": {"enable_thinking": False}}
 
     def call_llm(self, messages: list[BaseMessage], max_tokens: int = -1) -> str:
         """Invoke the LLM and return the text response.
 
-        For Ollama models this goes through the raw ``/api/chat`` endpoint so
-        that the ``think`` flag (and correct ``num_predict``) are respected.
-        For API models it falls back to the LangChain ``invoke`` path.
-
         Args:
             messages: The conversation messages to send.
-            max_tokens: Maximum tokens to generate.  ``-1`` means unlimited
-                (Ollama default).  Pass a positive value to cap generation
-                for short free-text responses (e.g. subquestions, answers).
+            max_tokens: Maximum tokens to generate.  ``-1`` means unlimited.
+                Pass a positive value to cap short free-text responses
+                (e.g. subquestions, answers).
         """
-        if not self.is_api_model:
-            ollama_messages = []
-            for m in messages:
-                role = "user"
-                if m.type == "system":
-                    role = "system"
-                elif m.type == "ai":
-                    role = "assistant"
-                ollama_messages.append({"role": role, "content": m.content})
-            # The think flag controls whether the reasoning chain is included.
-            # max_tokens caps generation for short responses.
-            data = self._ollama_post(ollama_messages, num_predict=max_tokens)
-            return data.get("message", {}).get("content", "").strip()
+        if self.is_api_model:
+            response = self.llm.invoke(messages)
+            return response.content
 
-        response = self.llm.invoke(messages)
-        return response.content
+        resp = self.client.chat.completions.create(
+            model=self.model,
+            messages=self._to_openai_messages(messages),
+            temperature=0,
+            max_tokens=None if max_tokens < 0 else max_tokens,
+            extra_body=self._extra_body(),
+        )
+        return (resp.choices[0].message.content or "").strip()
 
     def call_llm_with_logprobs(
         self, messages: list[BaseMessage]
     ) -> tuple[str, dict[str, float]]:
         """Invoke the LLM and return (text, logprobs_dict).
 
-        For Ollama models, logprobs are obtained via the raw Ollama HTTP API
-        (``/api/chat``) because langchain-ollama does not directly expose them.
-
-        For API models, logprobs are not available; the dict will be empty.
+        For vLLM models, logprobs come from the OpenAI-compatible
+        ``/v1/chat/completions`` response.  For API models logprobs are not
+        available and the dict is empty.
 
         The logprobs dict maps each token (``"1"``-``"5"``) to its
         log-probability.  Missing tokens get ``-inf``.
@@ -326,138 +227,79 @@ class Llm:
             text = self.call_llm(messages)
             return text, {}
 
-        return self._ollama_chat_with_logprobs(messages)
-
-    def _ollama_chat_with_logprobs(
-        self, messages: list[BaseMessage]
-    ) -> tuple[str, dict[str, float]]:
-        """Call Ollama's ``/api/chat`` endpoint with ``logprobs=True``.
-
-        Uses a single request per call:
-
-        * **Standard models** – ``num_predict=1`` so Ollama emits exactly one
-          token (the acuity digit) with its logprobs.
-        * **Reasoning models, think=True** – ``num_predict=-1`` (no limit) so
-          the thinking chain runs to completion; the acuity digit appears in
-          ``content`` and logprobs are read from the last content token.
-        * **Reasoning models, think=False** – ``num_predict=-1`` as well.
-          Even with thinking disabled, DeepSeek-R1 and similar models may
-          still generate verbose free-text before the digit (e.g. "The triage
-          level is 3").  We let generation complete and extract the digit from
-          the content with ``_parse_acuity``; logprobs are read from the last
-          token in the list (which is always the acuity digit).
-        """
-        ollama_messages = []
-        for m in messages:
-            role = "user"
-            if m.type == "system":
-                role = "system"
-            elif m.type == "ai":
-                role = "assistant"
-            ollama_messages.append({"role": role, "content": m.content})
-
-        # Reasoning models always need full generation: thinking chain (think=True)
-        # or verbose free-text answer (think=False).  Standard models stop at 1 token.
-        use_thinking = self.is_reasoning_model and self.think
-        num_predict = -1 if self.is_reasoning_model else 1
-        data = self._ollama_post(ollama_messages, num_predict=num_predict)
-
-        text = data.get("message", {}).get("content", "").strip()
-        # For reasoning models the acuity digit is always the last token;
-        # for standard models it is the first (and only) token.
-        logprobs_dict = self._extract_logprobs(
-            data, reasoning=self.is_reasoning_model
+        resp = self.client.chat.completions.create(
+            model=self.model,
+            messages=self._to_openai_messages(messages),
+            temperature=0,
+            max_tokens=None,  # let the digit (or reasoning chain) complete
+            logprobs=True,
+            top_logprobs=20,  # 20 captures all of 1-5 as alternatives
+            extra_body=self._extra_body(),
         )
+        choice = resp.choices[0]
+        text = (choice.message.content or "").strip()
 
-        prob_dict: dict[str, float] = {
-            k: math.exp(lp) if lp != float("-inf") else 0.0
-            for k, lp in logprobs_dict.items()
+        # OpenAI logprobs come back as pydantic objects; normalise to dicts so
+        # _extract_logprobs is a pure, easily-tested function.
+        content = []
+        lp = getattr(choice, "logprobs", None)
+        for tok in (getattr(lp, "content", None) or []):
+            content.append(
+                {
+                    "token": tok.token,
+                    "logprob": tok.logprob,
+                    "top_logprobs": [
+                        {"token": a.token, "logprob": a.logprob}
+                        for a in (tok.top_logprobs or [])
+                    ],
+                }
+            )
+
+        logprobs_dict = self._extract_logprobs(content)
+        prob_dict = {
+            k: math.exp(v) if v != float("-inf") else 0.0
+            for k, v in logprobs_dict.items()
         }
         logger.debug(
             "Model %s logprobs: %s, probabilities: %s",
-            self.model,
-            logprobs_dict,
-            prob_dict,
+            self.model, logprobs_dict, prob_dict,
         )
-
         return text, logprobs_dict
 
-    def _ollama_post(
-        self, ollama_messages: list[dict], *, num_predict: int
-    ) -> dict:
-        """Send a single request to ``/api/chat`` and return the parsed JSON."""
-        payload: dict = {
-            "model": self.model,
-            "messages": ollama_messages,
-            "stream": False,
-            "keep_alive": "1h",  # keep model in VRAM for the full evaluation run
-            "options": {
-                "temperature": 0,
-                "num_ctx": 4096,  # patient context is ~500 chars; 4096 is ample
-                "num_predict": num_predict,
-            },
-            "logprobs": True,
-            "top_logprobs": 20,  # 20 to capture all digit alternatives 1-5
-        }
-        # Pass think flag only for reasoning models; ignored by standard models.
-        if self.is_reasoning_model:
-            payload["think"] = self.think
-        resp = requests.post(
-            f"{_ollama_base_url()}/api/chat",
-            json=payload,
-            timeout=300,
-        )
-        resp.raise_for_status()
-        return resp.json()
-
     @staticmethod
-    def _extract_logprobs(data: dict, *, reasoning: bool) -> dict[str, float]:
-        """Extract per-acuity-level logprobs from an Ollama response.
+    def _extract_logprobs(content: list[dict]) -> dict[str, float]:
+        """Extract per-acuity-level logprobs from OpenAI ``logprobs.content``.
 
-        Ollama's ``logprobs`` field is a list of per-token objects::
+        *content* is the list of per-token objects::
 
             [{"token": "3", "logprob": -0.01, "top_logprobs": [...]}, ...]
 
-        ``reasoning=False`` (standard models and reasoning models with
-        ``think=False`` + prefill + stop): the acuity digit is ``token_list[0]``
-        — the first (and only significant) token.
-
-        ``reasoning=True`` (reasoning models with ``think=True``): the token
-        list covers all thinking + content tokens; the acuity digit is the
-        *last* token.
-
-        ``top_logprobs=20`` is used in the request to ensure that all five
-        acuity digits appear as alternatives even when the top choice is very
-        confident.
+        The acuity digit is the *last* token in the list that is a bare digit
+        1-5.  For a standard model that emits only the digit this is the single
+        token; for a reasoning model that emits a chain ending in the answer it
+        is the final answer digit (scanning from the end skips digits that
+        appear inside the reasoning text).  Its ``top_logprobs`` supply the
+        alternatives for the other acuity levels.
         """
         logprobs_dict: dict[str, float] = {
             str(i): float("-inf") for i in range(1, 6)
         }
         acuity_tokens = set(logprobs_dict.keys())
 
-        token_list: list[dict] = data.get("logprobs", [])
-
-        if not token_list:
-            # Legacy Ollama format: top_logprobs is a list of {token: logprob}
-            legacy = data.get("top_logprobs", [])
-            if legacy:
-                entry = legacy[-1] if reasoning else legacy[0]
-                for token, lp in entry.items():
-                    if token.strip() in acuity_tokens:
-                        logprobs_dict[token.strip()] = lp
+        if not content:
             return logprobs_dict
 
-        # Find the answer token: for reasoning models it is the last one;
-        # for standard models it is the only one.
-        answer_obj = token_list[-1] if reasoning else token_list[0]
+        # Last bare-digit token = the answer; fall back to the last token.
+        answer = next(
+            (t for t in reversed(content) if t.get("token", "").strip() in acuity_tokens),
+            content[-1],
+        )
 
-        # Record the chosen token's logprob
-        chosen = answer_obj.get("token", "").strip()
+        chosen = answer.get("token", "").strip()
         if chosen in acuity_tokens:
-            logprobs_dict[chosen] = answer_obj.get("logprob", float("-inf"))
+            logprobs_dict[chosen] = answer.get("logprob", float("-inf"))
 
-        # Fill alternatives from top_logprobs
-        for alt in answer_obj.get("top_logprobs", []):
+        for alt in answer.get("top_logprobs", []):
             alt_tok = alt.get("token", "").strip()
             if alt_tok in acuity_tokens:
                 logprobs_dict[alt_tok] = alt.get("logprob", float("-inf"))

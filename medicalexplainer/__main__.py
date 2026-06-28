@@ -36,8 +36,9 @@ def main() -> None:
         nargs="+",
         required=True,
         help=(
-            "One or more model names. Ollama models are auto-pulled if not "
-            "present. API models: gemini-2.5-flash, gemini-2.0-flash, gemma-3-27b"
+            "One or more model names. vLLM models must match what the server "
+            "was launched with (vllm serve <model>). "
+            "API models: gemini-2.5-flash, gemini-2.0-flash, gemma-3-27b"
         ),
     )
 

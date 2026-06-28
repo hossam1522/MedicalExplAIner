@@ -8,7 +8,7 @@ department patient records.
 Public API:
     Dataset    - Load and merge MIMIC-IV-ED CSV files into patient records.
     Evaluator  - Orchestrate the prediction pipeline and write results.
-    Llm        - Unified LLM wrapper (Ollama + Google API).
+    Llm        - Unified LLM wrapper (vLLM + Google API).
 """
 
 from medicalexplainer.dataset import Dataset

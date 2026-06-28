@@ -1,4 +1,4 @@
-.PHONY: help check install test install-uv run run-nodiv run-nothink run-nodiv-nothink dev clean download-demo-data
+.PHONY: help check install test install-uv run run-nodiv run-nothink run-nodiv-nothink dev clean download-demo-data vllm-serve
 
 help:
 	@echo "Usage: make [target]"
@@ -9,6 +9,7 @@ help:
 	@echo "  install                                 Install the package and its dependencies"
 	@echo "  test                                    Run the test suite"
 	@echo "  download-demo-data                      Download MIMIC-IV-ED demo CSV files"
+	@echo "  vllm-serve MODEL=<hf-model>             Start a vLLM OpenAI-compatible server"
 	@echo "  run MODELS='model1 model2 ...'               Run evaluation with subtasks"
 	@echo "  run-nodiv MODELS='model1 model2 ...'         Run evaluation without subtasks"
 	@echo "  run-nothink MODELS='model1 model2 ...'       Run with subtasks, thinking disabled"
@@ -28,6 +29,9 @@ install:
 
 test:
 	uv run pytest tests/
+
+vllm-serve:
+	vllm serve $(MODEL) --port 8000
 
 download-demo-data:
 	@echo "Downloading MIMIC-IV-ED demo data..."

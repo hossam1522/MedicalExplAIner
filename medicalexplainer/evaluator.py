@@ -89,7 +89,7 @@ class Evaluator:
         """Run the evaluation pipeline and write results to a CSV.
 
         Args:
-            models: Model names to evaluate (Ollama or API).
+            models: Model names to evaluate (vLLM or API).
             dataset: A loaded :class:`Dataset` instance.
             use_subtasks: Whether to decompose into sub-questions first.
             limit: Cap the number of patient records to evaluate.

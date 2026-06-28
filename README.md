@@ -8,10 +8,10 @@ MedicalExplAIner feeds patient data from MIMIC-IV-ED (demographics, triage vital
 
 Key features:
 
-- **Dynamic Ollama model support** -- any Ollama model can be used without code changes; models are auto-pulled if not present locally.
+- **vLLM model support** -- any model served by a [vLLM](https://docs.vllm.ai) instance can be used without code changes; the model name must match what the server was launched with (`vllm serve <model>`). vLLM is reached through its OpenAI-compatible HTTP API.
 - **Google API models** -- Gemini and Gemma models are also supported.
-- **Reasoning model support** -- DeepSeek-R1 and other thinking models are detected automatically; use `--no-think` to skip the reasoning chain for faster inference.
-- **Logprobs** -- for Ollama models, log-probabilities for each acuity level (1-5) are collected.
+- **Reasoning models** -- use `--no-think` to disable the thinking chain for chat templates that support it (e.g. Qwen3), for faster inference.
+- **Logprobs** -- for vLLM models, log-probabilities for each acuity level (1-5) are collected from the OpenAI-compatible `logprobs` response.
 - **ESI v4 algorithm** -- the full Emergency Severity Index v4 decision tree is embedded in every prompt, including physiological thresholds and resource-count logic.
 - **Variable selection** -- choose which patient variables to include in the prompt.
 - **Sub-question decomposition** -- optionally break the prediction into sub-questions before making a final determination.
@@ -73,37 +73,42 @@ The complete MIMIC-IV-ED v2.2 dataset (~425,000 ED stays) requires [credentialed
 
    Create a `.env` file in the project root:
    ```bash
-   GOOGLE_API_KEY=your_api_key_here  # only needed for Google API models
-   OLLAMA_HOST=localhost:11434        # optional; defaults to localhost:11434
+   GOOGLE_API_KEY=your_api_key_here       # only needed for Google API models
+   VLLM_BASE_URL=http://localhost:8000/v1 # optional; defaults to this
+   VLLM_API_KEY=EMPTY                     # optional; only if vLLM was started with --api-key
    ```
 
-5. **Ensure Ollama is running** (if using Ollama models)
+5. **Start a vLLM server** (if using vLLM models)
    ```bash
-   ollama serve
+   vllm serve Qwen/Qwen2.5-0.5B-Instruct --port 8000
+   # or: make vllm-serve MODEL=Qwen/Qwen2.5-0.5B-Instruct
    ```
+   vLLM downloads the model from Hugging Face on first launch and serves an
+   OpenAI-compatible API at `http://localhost:8000/v1`. The `--models` value
+   you pass to the tool must match the served model name.
 
 ## Usage
 
 ### Using Make
 
-**Single Ollama model (with sub-questions):**
+**Single vLLM model (with sub-questions):**
 ```bash
-make run MODELS=llama3.1
+make run MODELS=Qwen/Qwen2.5-0.5B-Instruct
 ```
 
 **Multiple models (direct prediction, no sub-questions):**
 ```bash
-make run-nodiv MODELS='llama3.1 gemma3:4b mistral'
+make run-nodiv MODELS='Qwen/Qwen2.5-0.5B-Instruct meta-llama/Llama-3.2-1B-Instruct'
 ```
 
 **Reasoning model with thinking disabled:**
 ```bash
-make run-nothink MODELS=deepseek-r1:8b
+make run-nothink MODELS=Qwen/Qwen3-0.6B
 ```
 
 **Reasoning model, no sub-questions, no thinking:**
 ```bash
-make run-nodiv-nothink MODELS=deepseek-r1:8b
+make run-nodiv-nothink MODELS=Qwen/Qwen3-0.6B
 ```
 
 ### Direct execution
@@ -116,7 +121,7 @@ python -m medicalexplainer --models <model1> [model2 ...] [options]
 
 | Parameter | Type | Required | Description | Default |
 |-----------|------|----------|-------------|---------|
-| `--models` | list | Yes | Model names (Ollama models are auto-pulled) | -- |
+| `--models` | list | Yes | Model names (must match the vLLM served model) | -- |
 | `--subtasks` | flag | No | Decompose into sub-questions before predicting | Off |
 | `--no-think` | flag | No | Disable thinking chain on reasoning models (faster) | Off |
 | `--limit` | int | No | Max number of patient records to evaluate | All |
@@ -139,27 +144,27 @@ Variables are grouped by source table:
 
 **Evaluate with all variables (default):**
 ```bash
-python -m medicalexplainer --models llama3.1
+python -m medicalexplainer --models Qwen/Qwen2.5-0.5B-Instruct
 ```
 
 **Evaluate with only triage data:**
 ```bash
 python -m medicalexplainer \
-    --models llama3.1 \
+    --models Qwen/Qwen2.5-0.5B-Instruct \
     --variables temperature heartrate resprate o2sat sbp dbp pain chiefcomplaint
 ```
 
 **Evaluate with sub-question decomposition, limited to 10 records:**
 ```bash
 python -m medicalexplainer \
-    --models llama3.1 gemma3:4b \
+    --models Qwen/Qwen2.5-0.5B-Instruct \
     --subtasks \
     --limit 10
 ```
 
 **Use a reasoning model with thinking disabled:**
 ```bash
-python -m medicalexplainer --models deepseek-r1:8b --no-think
+python -m medicalexplainer --models Qwen/Qwen3-0.6B --no-think
 ```
 
 **Use a Google API model:**
@@ -167,40 +172,40 @@ python -m medicalexplainer --models deepseek-r1:8b --no-think
 python -m medicalexplainer --models gemini-2.0-flash
 ```
 
-## Ollama configuration
+## vLLM configuration
 
-### Custom host (`OLLAMA_HOST`)
+### Custom endpoint (`VLLM_BASE_URL`)
 
-By default the tool connects to Ollama at `localhost:11434`.  If your Ollama
-instance runs on a different address (e.g. a remote GPU server), set
-`OLLAMA_HOST` before running:
+By default the tool connects to vLLM at `http://localhost:8000/v1`.  If your
+vLLM instance runs elsewhere (e.g. a remote GPU server), set `VLLM_BASE_URL`
+before running:
 
 ```bash
-export OLLAMA_HOST=0.0.0.0:11436          # no scheme required
-# or
-export OLLAMA_HOST=http://gpu-server:11434
+export VLLM_BASE_URL=http://gpu-server:8000/v1
+# a bare host:port also works and gets /v1 appended automatically
+export VLLM_BASE_URL=gpu-server:8000
 ```
 
-The value can be set in `.env` as well.
+If you launched vLLM with `--api-key`, set `VLLM_API_KEY` to the same value.
+Both can be set in `.env`.
 
 ### Reasoning models (`--no-think`)
 
-Reasoning models (e.g. DeepSeek-R1, QwQ) are detected automatically by
-querying Ollama's `/api/show` endpoint for the `"thinking"` capability.  When
-such a model is used:
+vLLM serves a single model whose chat template decides reasoning behaviour.
+For templates that honour `enable_thinking` (e.g. Qwen3):
 
-- By default (`think=True`) the model produces a hidden chain-of-thought before
-  the visible answer.  This is slower but generally more accurate.
-- With `--no-think` the reasoning chain is skipped entirely.  Inference is
-  significantly faster (similar to a standard model) at the cost of some
-  deliberateness.
+- By default (`think=True`) the model produces a chain-of-thought before the
+  visible answer.  This is slower but generally more accurate.
+- With `--no-think` the tool sends `chat_template_kwargs={"enable_thinking": false}`,
+  skipping the reasoning chain.  The flag is ignored by models whose template
+  does not support it.
 
 ```bash
 # With thinking (default)
-python -m medicalexplainer --models deepseek-r1:8b
+python -m medicalexplainer --models Qwen/Qwen3-0.6B
 
 # Without thinking (faster)
-python -m medicalexplainer --models deepseek-r1:8b --no-think
+python -m medicalexplainer --models Qwen/Qwen3-0.6B --no-think
 ```
 
 ## Results
@@ -235,15 +240,14 @@ percentage for every model in the run.
 
 ## Adding models
 
-### Ollama models
+### vLLM models
 
-No code changes needed. Just pass the model name:
+No code changes needed. Launch the model with vLLM, then pass the same name:
 
 ```bash
-python -m medicalexplainer --models any-ollama-model-name
+vllm serve <hf-model-id> --port 8000
+python -m medicalexplainer --models <hf-model-id>
 ```
-
-If the model is not already pulled, it will be downloaded automatically.
 
 ### Google API models
 
@@ -272,7 +276,7 @@ MedicalExplAIner/
 │   ├── __main__.py           # CLI entry point
 │   ├── dataset.py            # CSV loading, merging, aggregation
 │   ├── evaluator.py          # Evaluation pipeline, CSV output
-│   ├── llm.py                # LLM wrapper (Ollama + Google API)
+│   ├── llm.py                # LLM wrapper (vLLM + Google API)
 │   ├── logger.py             # Logging configuration
 │   └── paths.py              # Centralised path constants
 ├── tests/

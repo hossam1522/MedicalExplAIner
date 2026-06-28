@@ -1,14 +1,12 @@
 """Tests for the LLM wrappers."""
 
 import csv
-import io
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from medicalexplainer.llm import API_MODELS, Llm, _ollama_base_url, _strip_ansi
+from medicalexplainer.llm import API_MODELS, Llm, _vllm_base_url, _vllm_api_key
 
 
 # ---------------------------------------------------------------------------
@@ -28,87 +26,68 @@ def test_api_models_have_backend_key() -> None:
 
 
 def test_llm_class_exists() -> None:
-    """Llm should be importable without needing Ollama running."""
+    """Llm should be importable without needing a vLLM server running."""
     assert Llm is not None
 
 
 def test_llm_is_api_model_detection() -> None:
     """API model names should be detected correctly (without instantiation)."""
     assert "gemini-2.0-flash" in API_MODELS
-    assert "some-random-ollama-model" not in API_MODELS
+    assert "some-random-vllm-model" not in API_MODELS
 
 
 # ---------------------------------------------------------------------------
-# _ollama_base_url
+# _vllm_base_url
 # ---------------------------------------------------------------------------
 
 
-def test_ollama_base_url_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without OLLAMA_HOST the default localhost:11434 should be used."""
-    monkeypatch.delenv("OLLAMA_HOST", raising=False)
-    assert _ollama_base_url() == "http://localhost:11434"
+def test_vllm_base_url_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without VLLM_BASE_URL the default localhost:8000/v1 is used."""
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    assert _vllm_base_url() == "http://localhost:8000/v1"
 
 
-def test_ollama_base_url_from_env_no_scheme(monkeypatch: pytest.MonkeyPatch) -> None:
-    """OLLAMA_HOST without a scheme should be normalised to http://."""
-    monkeypatch.setenv("OLLAMA_HOST", "0.0.0.0:11436")
-    assert _ollama_base_url() == "http://0.0.0.0:11436"
+def test_vllm_base_url_no_scheme(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bare host:port is normalised to http:// and given a /v1 suffix."""
+    monkeypatch.setenv("VLLM_BASE_URL", "0.0.0.0:8001")
+    assert _vllm_base_url() == "http://0.0.0.0:8001/v1"
 
 
-def test_ollama_base_url_from_env_with_http(monkeypatch: pytest.MonkeyPatch) -> None:
-    """OLLAMA_HOST with http:// prefix should not be doubled."""
-    monkeypatch.setenv("OLLAMA_HOST", "http://myhost:11434")
-    assert _ollama_base_url() == "http://myhost:11434"
+def test_vllm_base_url_with_http_no_v1(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An http:// URL without /v1 gets the suffix appended."""
+    monkeypatch.setenv("VLLM_BASE_URL", "http://myhost:8000")
+    assert _vllm_base_url() == "http://myhost:8000/v1"
 
 
-def test_ollama_base_url_from_env_with_https(monkeypatch: pytest.MonkeyPatch) -> None:
-    """OLLAMA_HOST with https:// prefix should be rewritten to http://."""
-    monkeypatch.setenv("OLLAMA_HOST", "https://myhost:11434")
-    assert _ollama_base_url() == "http://myhost:11434"
+def test_vllm_base_url_with_v1(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A full URL with /v1 is left intact (no doubling)."""
+    monkeypatch.setenv("VLLM_BASE_URL", "http://myhost:8000/v1")
+    assert _vllm_base_url() == "http://myhost:8000/v1"
 
 
-def test_ollama_base_url_empty_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An empty OLLAMA_HOST should fall back to the default."""
-    monkeypatch.setenv("OLLAMA_HOST", "")
-    assert _ollama_base_url() == "http://localhost:11434"
+def test_vllm_base_url_empty_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty VLLM_BASE_URL falls back to the default."""
+    monkeypatch.setenv("VLLM_BASE_URL", "")
+    assert _vllm_base_url() == "http://localhost:8000/v1"
 
 
-# ---------------------------------------------------------------------------
-# _strip_ansi
-# ---------------------------------------------------------------------------
+def test_vllm_api_key_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VLLM_API_KEY", raising=False)
+    assert _vllm_api_key() == "EMPTY"
 
 
-def test_strip_ansi_removes_color_codes() -> None:
-    assert _strip_ansi("\x1b[31mError\x1b[0m") == "Error"
-
-
-def test_strip_ansi_removes_carriage_return() -> None:
-    assert _strip_ansi("line1\rline2") == "line1line2"
-
-
-def test_strip_ansi_plain_text_unchanged() -> None:
-    assert _strip_ansi("hello world") == "hello world"
-
-
-def test_strip_ansi_strips_whitespace() -> None:
-    assert _strip_ansi("  text  ") == "text"
-
-
-def test_strip_ansi_complex_sequence() -> None:
-    """Simulate a real ollama pull progress line with ANSI codes."""
-    raw = "\x1b[?25l\x1b[2Kpulling manifest\r\x1b[2KDone\x1b[?25h"
-    result = _strip_ansi(raw)
-    assert "\x1b" not in result
-    assert "\r" not in result
+def test_vllm_api_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VLLM_API_KEY", "secret")
+    assert _vllm_api_key() == "secret"
 
 
 # ---------------------------------------------------------------------------
-# Llm._extract_logprobs (static method — no Ollama required)
+# Llm._extract_logprobs (static method — no server required)
 # ---------------------------------------------------------------------------
 
 
 def _make_token_entry(token: str, logprob: float, alts: dict[str, float]) -> dict:
-    """Build an Ollama-style token logprob object."""
+    """Build an OpenAI-style token logprob object (as a dict)."""
     return {
         "token": token,
         "logprob": logprob,
@@ -116,15 +95,12 @@ def _make_token_entry(token: str, logprob: float, alts: dict[str, float]) -> dic
     }
 
 
-def test_extract_logprobs_standard_reads_first_token() -> None:
-    """Standard model (reasoning=False) should read token_list[0]."""
-    data = {
-        "logprobs": [
-            _make_token_entry("3", -0.1, {"3": -0.1, "2": -1.5, "4": -2.0}),
-            _make_token_entry("X", -9.9, {}),  # second token — must be ignored
-        ]
-    }
-    result = Llm._extract_logprobs(data, reasoning=False)
+def test_extract_logprobs_single_digit_token() -> None:
+    """A standard model emits one digit token; its alternatives fill 1-5."""
+    content = [
+        _make_token_entry("3", -0.1, {"3": -0.1, "2": -1.5, "4": -2.0}),
+    ]
+    result = Llm._extract_logprobs(content)
     assert result["3"] == pytest.approx(-0.1)
     assert result["2"] == pytest.approx(-1.5)
     assert result["4"] == pytest.approx(-2.0)
@@ -132,15 +108,15 @@ def test_extract_logprobs_standard_reads_first_token() -> None:
     assert result["5"] == float("-inf")
 
 
-def test_extract_logprobs_reasoning_reads_last_token() -> None:
-    """Reasoning model (reasoning=True) should read token_list[-1]."""
-    data = {
-        "logprobs": [
-            _make_token_entry("think", -0.01, {}),  # thinking chain token
-            _make_token_entry("2", -0.05, {"2": -0.05, "1": -3.0, "3": -2.0}),
-        ]
-    }
-    result = Llm._extract_logprobs(data, reasoning=True)
+def test_extract_logprobs_reads_last_digit_token() -> None:
+    """With a reasoning chain, the LAST bare-digit token is the answer."""
+    content = [
+        _make_token_entry("Step", -0.01, {}),
+        _make_token_entry("1", -0.01, {}),      # digit inside the reasoning — ignored
+        _make_token_entry(" so", -0.01, {}),
+        _make_token_entry("2", -0.05, {"2": -0.05, "1": -3.0, "3": -2.0}),  # answer
+    ]
+    result = Llm._extract_logprobs(content)
     assert result["2"] == pytest.approx(-0.05)
     assert result["1"] == pytest.approx(-3.0)
     assert result["3"] == pytest.approx(-2.0)
@@ -148,33 +124,31 @@ def test_extract_logprobs_reasoning_reads_last_token() -> None:
     assert result["5"] == float("-inf")
 
 
-def test_extract_logprobs_empty_token_list_returns_neg_inf() -> None:
-    """When logprobs list is empty and no legacy data, all values are -inf."""
-    result = Llm._extract_logprobs({"logprobs": []}, reasoning=False)
+def test_extract_logprobs_empty_returns_neg_inf() -> None:
+    """An empty content list yields all -inf."""
+    result = Llm._extract_logprobs([])
     assert all(v == float("-inf") for v in result.values())
     assert set(result.keys()) == {"1", "2", "3", "4", "5"}
 
 
 def test_extract_logprobs_ignores_non_acuity_tokens() -> None:
-    """Tokens that are not 1-5 should not appear in the result."""
-    data = {
-        "logprobs": [
-            _make_token_entry("3", -0.2, {"3": -0.2, "X": -1.0, "hello": -5.0}),
-        ]
-    }
-    result = Llm._extract_logprobs(data, reasoning=False)
+    """Alternatives that are not 1-5 should not appear in the result."""
+    content = [
+        _make_token_entry("3", -0.2, {"3": -0.2, "X": -1.0, "hello": -5.0}),
+    ]
+    result = Llm._extract_logprobs(content)
     assert "X" not in result
     assert "hello" not in result
     assert set(result.keys()) == {"1", "2", "3", "4", "5"}
 
 
 # ---------------------------------------------------------------------------
-# Llm.think flag (stored without needing Ollama)
+# Llm.think flag (stored without needing a server)
 # ---------------------------------------------------------------------------
 
 
-def _make_llm_no_ollama(think: bool = True) -> Llm:
-    """Instantiate Llm for an API model so no Ollama connection is needed."""
+def _make_llm_no_server(think: bool = True) -> Llm:
+    """Instantiate Llm for an API model so no vLLM connection is needed."""
     with patch("medicalexplainer.llm.load_dotenv"), patch(
         "medicalexplainer.llm.ChatGoogleGenerativeAI"
     ):
@@ -182,18 +156,28 @@ def _make_llm_no_ollama(think: bool = True) -> Llm:
 
 
 def test_llm_think_default_is_true() -> None:
-    llm = _make_llm_no_ollama(think=True)
+    llm = _make_llm_no_server(think=True)
     assert llm.think is True
 
 
 def test_llm_think_false_stored_correctly() -> None:
-    llm = _make_llm_no_ollama(think=False)
+    llm = _make_llm_no_server(think=False)
     assert llm.think is False
 
 
 def test_llm_is_api_model_flag() -> None:
-    llm = _make_llm_no_ollama()
+    llm = _make_llm_no_server()
     assert llm.is_api_model is True
+
+
+def test_extra_body_none_when_thinking() -> None:
+    llm = _make_llm_no_server(think=True)
+    assert llm._extra_body() is None
+
+
+def test_extra_body_disables_thinking_when_off() -> None:
+    llm = _make_llm_no_server(think=False)
+    assert llm._extra_body() == {"chat_template_kwargs": {"enable_thinking": False}}
 
 
 # ---------------------------------------------------------------------------
@@ -220,31 +204,53 @@ def test_esi_algorithm_mentions_vital_signs() -> None:
 
 
 # ---------------------------------------------------------------------------
-# call_llm passes max_tokens to _ollama_post (no network)
+# call_llm forwards max_tokens to the vLLM client (no network)
 # ---------------------------------------------------------------------------
 
 
-def test_call_llm_passes_max_tokens_to_post() -> None:
-    """call_llm should forward max_tokens as num_predict to _ollama_post."""
+def _make_vllm_llm() -> Llm:
+    """Instantiate a vLLM-backed Llm with the OpenAI client mocked out."""
     with patch("medicalexplainer.llm.load_dotenv"), patch(
-        "medicalexplainer.llm.ensure_ollama_model"
-    ), patch("medicalexplainer.llm.ChatOllama"), patch(
-        "medicalexplainer.llm.requests.post"
-    ) as mock_req, patch.object(
-        Llm, "_probe_reasoning", return_value=False
-    ):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"message": {"content": "3"}}
-        mock_resp.raise_for_status.return_value = None
-        mock_req.return_value = mock_resp
+        "medicalexplainer.llm.OpenAI"
+    ) as mock_openai:
+        client = mock_openai.return_value
+        # _check_served: pretend the server lists our model
+        client.models.list.return_value = MagicMock(
+            data=[MagicMock(id="my-model")]
+        )
+        llm = Llm("my-model")
+    return llm
 
-        llm = Llm("llama3.1")
-        from langchain_core.messages import HumanMessage
-        llm.call_llm([HumanMessage(content="test")], max_tokens=128)
 
-        call_kwargs = mock_req.call_args
-        payload = call_kwargs[1]["json"] if call_kwargs[1] else call_kwargs[0][1]
-        assert payload["options"]["num_predict"] == 128
+def test_call_llm_forwards_max_tokens() -> None:
+    """call_llm should forward max_tokens to chat.completions.create."""
+    from langchain_core.messages import HumanMessage
+
+    llm = _make_vllm_llm()
+    create = llm.client.chat.completions.create
+    create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="3"))]
+    )
+
+    llm.call_llm([HumanMessage(content="test")], max_tokens=128)
+
+    kwargs = create.call_args.kwargs
+    assert kwargs["max_tokens"] == 128
+
+
+def test_call_llm_unlimited_max_tokens_is_none() -> None:
+    """max_tokens=-1 should become None (unlimited)."""
+    from langchain_core.messages import HumanMessage
+
+    llm = _make_vllm_llm()
+    create = llm.client.chat.completions.create
+    create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="3"))]
+    )
+
+    llm.call_llm([HumanMessage(content="test")])  # default -1
+
+    assert create.call_args.kwargs["max_tokens"] is None
 
 
 # ---------------------------------------------------------------------------
